@@ -262,6 +262,8 @@ class RunbookGenerator:
             confidence_display=conf_display,
             ranked_hypotheses=ranked_hypotheses_data,
             disambiguation_required=disamb_req,
+            project=incident.project,
+            stack=incident.stack,
         )
         self.db.save_runbook(runbook)
 

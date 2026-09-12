@@ -91,6 +91,7 @@ def show_categorized_help() -> None:
             "📖 2. RUNBOOK INTELLIGENCE & EARNED CONFIDENCE",
             [
                 ("runbooks [2 / r]", "Query Runbook Library", "Displays stored runbooks with mathematically earned confidence (e.g. '87% — 7 of 8')."),
+                ("apply-fix <id>", "Trust-Gated Fix Execution", "Applies remediation fix through strict gate: single-ack for same-project, dual-confirm for cross-project."),
                 ("export-runbook <id>", "Export Runbook as Markdown", "Outputs clean, publishable GitHub-flavored Markdown runbook with provenance trail."),
             ],
         ),
@@ -207,13 +208,30 @@ def cmd_init() -> None:
 
 @cli.command("daemon")
 @click.option("--socket-path", "-s", default=None, help="Path to Unix domain socket (default: ~/.opsgenome/daemon.sock).")
-def cmd_daemon(socket_path: str | None) -> None:
-    """Start the OpsGenome local background daemon on a secure Unix domain socket."""
+@click.option("--host", "-h", default=None, help="TCP host to bind (e.g. 127.0.0.1 for local web UI/development).")
+@click.option("--port", "-p", default=None, type=int, help="TCP port to bind (e.g. 8765 for local web UI/development).")
+def cmd_daemon(socket_path: str | None, host: str | None, port: int | None) -> None:
+    """Start the OpsGenome local background daemon on a secure Unix domain socket or HTTP dev port."""
     from opsgenome.cli.client import get_default_socket_path
     import socket
     from pathlib import Path
 
     print_logo()
+    app = create_app()
+
+    # If TCP host/port is explicitly requested (e.g. for Web UI dev server via ./run_opsgenome.sh)
+    if host or port:
+        tcp_host = host or "127.0.0.1"
+        tcp_port = port or 8765
+        content = (
+            f"• Web UI Backend:      http://{tcp_host}:{tcp_port}\n"
+            f"• Dashboard Frontend:  http://localhost:3000 (via python3 run_frontend.py)\n"
+            f"• Access Control:      Localhost Loopback Only\n"
+            f"• Mode:                Development HTTP Web Server"
+        )
+        print_banner(f"OpsGenome Daemon Online (HTTP Web Mode :{tcp_port})", content, color=GREEN)
+        uvicorn.run(app, host=tcp_host, port=tcp_port, log_level="info")
+        return
 
     sock_str = socket_path or get_default_socket_path()
     sock_path = Path(sock_str)
@@ -235,8 +253,6 @@ def cmd_daemon(socket_path: str | None) -> None:
         except Exception:
             # Stale socket file, unlink it
             sock_path.unlink(missing_ok=True)
-
-    app = create_app()
 
     content = (
         f"• Unix Domain Socket:  {sock_str}\n"
@@ -332,7 +348,13 @@ def cmd_start_incident(title: str, service: str, severity: str, symptoms: tuple[
             f"Recommended Historical Actions:\n"
             + "\n".join([f"  $ {cmd}" for cmd in match["top_commands"]])
         )
-        print_banner("⚡ RECURRENCE ALERT (Sub-50ms Intake Match)", rec_content, color=YELLOW)
+        if match.get("same_project"):
+            banner_title = f"⚡ RECURRENCE ALERT (Same-Project Intake Match: {match.get('source_project')})"
+            banner_color = GREEN
+        else:
+            banner_title = f"⚠ CROSS-PROJECT RECURRENCE ADVISORY (Source: {match.get('source_project')})"
+            banner_color = YELLOW
+        print_banner(banner_title, rec_content, color=banner_color)
 
 
 @cli.command("status")
@@ -349,6 +371,7 @@ def cmd_status() -> None:
     events = db.get_events_for_incident(active.id)
     content = (
         f"• Title: {active.title} (ID: {active.id})\n"
+        f"• Project: {active.project} | Stack: {active.stack}\n"
         f"• Service: {active.service} | Severity: {active.severity} | Trigger: {active.trigger_source.value}\n"
         f"• Started: {active.started_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
         f"• Captured Events: {len(events)}"
@@ -426,10 +449,11 @@ def cmd_resolve(incident_id: str | None, by: str, root_cause: str | None) -> Non
 
 @cli.command("runbooks")
 @click.option("--service", "-s", default=None, help="Filter by service.")
-def cmd_runbooks(service: str | None) -> None:
+@click.option("--project", "-p", default=None, help="Filter by project.")
+def cmd_runbooks(service: str | None, project: str | None) -> None:
     """List synthesized runbooks with earned confidence scores."""
     db = DatabaseManager()
-    runbooks = db.list_runbooks(service=service)
+    runbooks = db.list_runbooks(service=service, project=project)
 
     if not runbooks:
         print(f"\n{DIM}No runbooks stored yet. Resolve an incident to generate operational memory.{RESET}\n")
@@ -439,15 +463,118 @@ def cmd_runbooks(service: str | None) -> None:
     for r in runbooks:
         table_rows.append([
             r.id,
-            r.title[:35],
+            r.title[:30],
+            r.project,
             r.service,
-            r.root_cause_category[:30],
+            r.root_cause_category[:25],
             f"v{r.version}",
             f"{GREEN}{r.confidence_display}{RESET}",
         ])
     print(f"\n{BOLD}{CYAN}OpsGenome Operational Runbook Library{RESET}")
-    print(tabulate(table_rows, headers=["ID", "Title", "Service", "Root Cause", "Ver", "Earned Confidence"], tablefmt="fancy_grid"))
+    print(tabulate(table_rows, headers=["ID", "Title", "Project", "Service", "Root Cause", "Ver", "Earned Confidence"], tablefmt="fancy_grid"))
     print()
+
+
+@cli.command("apply-fix")
+@click.argument("runbook_id")
+@click.option("--incident-id", "-i", default=None, help="Target incident ID (defaults to active incident).")
+@click.option("--auto-approve", "--yolo", is_flag=True, default=False, help="Auto-approve execution without interactive prompt.")
+@click.option("--ack", default=None, help="Cross-project acknowledgment string (e.g. 'CONFIRM FROM <source_project>').")
+def cmd_apply_fix(runbook_id: str, incident_id: str | None, auto_approve: bool, ack: str | None) -> None:
+    """Apply a verified remediation fix through the strict Trust Asymmetry Permission Gate."""
+    import subprocess
+    from opsgenome.prevention.permission_gate import (
+        FixApplicationGate,
+        FixExecutionRequest,
+        CrossProjectAutoApproveForbiddenError,
+        CrossProjectAcknowledgmentRequiredError,
+    )
+    from opsgenome.storage.project_context import detect_project
+
+    db = DatabaseManager()
+    runbook = db.get_runbook(runbook_id)
+    if not runbook:
+        print(f"{RED}Runbook '{runbook_id}' not found.{RESET}")
+        return
+
+    # Determine target incident and target project
+    inc = None
+    if incident_id:
+        inc = db.get_incident(incident_id)
+    else:
+        inc = db.get_active_incident()
+
+    target_project = inc.project if inc else detect_project()
+    target_inc_id = inc.id if inc else "ad-hoc"
+    source_project = runbook.project or "default"
+    same_project = (target_project == source_project)
+
+    # Get primary remediation command
+    command = runbook.steps[0].command if runbook.steps else "echo 'No command specified'"
+
+    content = (
+        f"• Runbook: {runbook.title} ({runbook.id})\n"
+        f"• Remediation Command: {command}\n"
+        f"• Source Project: {source_project}\n"
+        f"• Target Project: {target_project}\n"
+        f"• Trust Tier: {'SAME-PROJECT (High Trust)' if same_project else 'CROSS-PROJECT (Explicit Lower Trust)'}"
+    )
+    if same_project:
+        print_banner("⚡ Same-Project Remediation Fix Application", content, color=GREEN)
+    else:
+        print_banner("⚠ CROSS-PROJECT REMEDIATION FIX APPLICATION", content, color=YELLOW)
+        print(f"{BOLD}{YELLOW}Notice:{RESET} This fix was generated in project '{source_project}'.")
+        print(f"It has NOT been validated in this project's context ('{target_project}').")
+        print(f"Automatic application (--auto-approve) is strictly prohibited.\n")
+
+    confirmed = auto_approve
+    cross_ack = ack
+
+    if not auto_approve and not confirmed:
+        if same_project:
+            ans = click.confirm(f"Apply fix in {target_project}?", default=True)
+            confirmed = ans
+        else:
+            ans = click.confirm(f"Do you want to apply this unvalidated fix from '{source_project}'?", default=False)
+            confirmed = ans
+            if confirmed and not cross_ack:
+                print(f"\n{BOLD}{RED}MANDATORY DUAL-CONFIRMATION REQUIRED:{RESET}")
+                print(f"To execute this cross-project command, you must type: {BOLD}CONFIRM FROM {source_project}{RESET}")
+                cross_ack = click.prompt("Confirmation phrase", default="")
+
+    req = FixExecutionRequest(
+        runbook_id=runbook.id,
+        target_incident_id=target_inc_id,
+        target_project=target_project,
+        source_project=source_project,
+        command=command,
+        same_project=same_project,
+        confirmed=confirmed,
+        cross_project_ack=cross_ack,
+        auto_approve=auto_approve,
+    )
+
+    def execute_command(cmd: str) -> None:
+        print(f"\n{CYAN}Executing: {cmd}{RESET}")
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if res.stdout:
+            print(res.stdout)
+        if res.stderr:
+            print(f"{YELLOW}{res.stderr}{RESET}")
+        if res.returncode != 0:
+            print(f"{RED}Command exited with code {res.returncode}{RESET}")
+        else:
+            print(f"{GREEN}Command completed successfully.{RESET}")
+
+    try:
+        result = FixApplicationGate.authorize_and_apply(req, runner_fn=execute_command)
+        if result.executed:
+            print(f"\n{GREEN}✔ {result.message}{RESET}\n")
+        else:
+            print(f"\n{YELLOW}✘ {result.message}{RESET}\n")
+    except (CrossProjectAutoApproveForbiddenError, CrossProjectAcknowledgmentRequiredError) as err:
+        print(f"\n{BOLD}{RED}⛔ PERMISSION GATE REFUSAL:{RESET} {err}\n")
+        sys.exit(1)
 
 
 @cli.command("export-runbook")

@@ -2,7 +2,7 @@
 
 > **"Production systems remember what happened. OpsGenome remembers why the engineer fixed it. AI proposes; deterministic evidence verifies."**
 
-[![Tests](https://img.shields.io/badge/tests-61%20passed-success)](opsgenome/tests/)
+[![Tests](https://img.shields.io/badge/tests-69%20passed-success)](opsgenome/tests/)
 [![Security](https://img.shields.io/badge/security-fail--closed%20boundary-blue)](SECURITY.md)
 [![Recurrence SLA](https://img.shields.io/badge/intake%20match-0.25ms-brightgreen)](demo/benchmark_core_loop.py)
 [![Core Loop](https://img.shields.io/badge/core%20loop-35.2ms-emerald)](demo/benchmark_core_loop.py)
@@ -100,6 +100,16 @@ flowchart TD
 - **Hypothesis Disambiguation:** The AI reasoning layer ingests raw operational telemetry (without pre-labeled answers), correlates diagnostic error logs with state diffs, and produces a **calibrated, ranked set of hypotheses** (e.g. Rank 1: 65% query regression rollback vs Rank 2: 35% pool expansion), cites concrete supporting evidence, and provides specific distinguishing factors (e.g. APM trace query latency checks).
 - **Enforced Absence of False Confidence:** If the LLM is disabled or removed, the deterministic layer explicitly halts with `outcome="inconclusive"`, `fix_event_ids=[]`, and `ranked_hypotheses=[]`, refusing to assert an unverified single winner.
 
+### 7. Cross-Project Incident Memory & Mandatory Trust Asymmetry
+- **Machine-Wide Global Store:** Operational incidents are persisted in a centralized local SQLite database (`~/.opsgenome/global.db` or `./.opsgenome_data/global.db`) with automatic column migrations and seamless auto-migration of legacy per-project databases.
+- **Project & Stack Context:** Every `Incident`, `Event`, and `Runbook` carries explicit `project` and `stack` tags (e.g. `kubernetes`, `iac_terraform`, `docker_containers`, `database`).
+- **Global Recurrence Matching:** Incoming incidents are matched against historical resolutions across all repositories on the local workstation, enabling microservice teams to immediately benefit from outages solved in neighboring projects.
+- **Mandatory Trust Asymmetry Invariant:** Cross-project matches are strictly lower-trust than same-project matches:
+  - **Differentiated Presentation:** Cross-project matches are presented as `[CROSS-PROJECT MATCH - UNVALIDATED IN THIS PROJECT]`, explicitly identifying the foreign source project and warning that the fix has not been verified in the target project's context.
+  - **Zero Auto-Approve:** The Permission Gate (`FixApplicationGate`) strictly forbids automated application (`--auto-approve` or `--yolo`) for cross-project recommendations, throwing `CrossProjectAutoApproveForbiddenError`.
+  - **Mandatory Dual-Confirmation:** Cross-project fix execution requires the operator to explicitly confirm by typing `CONFIRM FROM <source_project>` (`CrossProjectAcknowledgmentRequiredError`).
+  - **Zero Cloud Exposure:** 100% local-first storage with in-process fail-closed secret redaction before write.
+
 ---
 
 ## 📊 Benchmark & Performance SLA
@@ -141,8 +151,10 @@ python3 run_frontend.py
 ```
 Open **[http://localhost:3000](http://localhost:3000)** (or `http://localhost:8765`) to view the Linear/Apple-inspired SRE console.
 
-### 3. Run the Live 5-Minute Hackathon Demo
-Follow the minute-by-minute pitch guide in [DEMO.md](DEMO.md):
+### 3. Run the Live Hackathon Demo
+- **Interactive 2.5-Minute Pitch Playbook:** Follow the step-by-step commands in [LIVE_DEMO_COMMANDS.md](LIVE_DEMO_COMMANDS.md) (includes 3-terminal layout, break/fix scripts, Benglish voiceover, and Before vs After Kubernetes diffs).
+- **Full 5-Minute Pitch Script:** See [DEMO.md](DEMO.md).
+- **Automated 1-Command Demo Loop:**
 ```bash
 python3 -m demo.run_hackathon_demo
 ```
@@ -151,7 +163,7 @@ python3 -m demo.run_hackathon_demo
 ```bash
 pytest -v
 ```
-*63+ passing unit, security boundary, grounding, and live Kubernetes integration tests.*
+*69+ passing unit, security boundary, grounding, cross-project memory, and live Kubernetes integration tests.*
 
 ### 5. Automated Healthcheck & Diagnostics
 ```bash
@@ -175,6 +187,7 @@ The OpsGenome dashboard is built with a high-density, high-legibility SRE consol
 
 ## 📄 Documentation Links
 
+- 🚀 [LIVE_DEMO_COMMANDS.md](LIVE_DEMO_COMMANDS.md) — Step-by-step 2.5-minute live demo command cheatsheet, break/fix scripts, and Benglish talking points.
 - 🩺 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Exhaustive Error Dictionary, root-cause mechanisms, fix commands, and diagnostic doctor tool.
 - 📋 [DEMO.md](DEMO.md) — 5-minute judge pitch walkthrough, minute-by-minute script, and technical Q&A cheat sheet.
 - 🔒 [SECURITY.md](SECURITY.md) — Threat model, redaction regex rules, Shannon entropy scanner, and fail-closed encryption guarantees.

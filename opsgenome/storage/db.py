@@ -58,12 +58,12 @@ class DatabaseManager:
             try:
                 home_dir = Path.home() / ".opsgenome"
                 home_dir.mkdir(parents=True, exist_ok=True)
-                self.db_path = str(home_dir / "opsgenome.db")
+                self.db_path = str(home_dir / "global.db")
                 self.crypto = crypto_manager or LocalCryptoManager(key_dir=str(home_dir))
             except (PermissionError, OSError):
                 local_dir = Path("./.opsgenome_data")
                 local_dir.mkdir(parents=True, exist_ok=True)
-                self.db_path = str(local_dir / "opsgenome.db")
+                self.db_path = str(local_dir / "global.db")
                 self.crypto = crypto_manager or LocalCryptoManager(key_dir=str(local_dir))
 
         self._mem_conn = None
@@ -98,7 +98,9 @@ class DatabaseManager:
                     resolved_by TEXT NOT NULL,
                     symptoms_json TEXT,
                     root_cause_category TEXT,
-                    summary TEXT
+                    summary TEXT,
+                    project TEXT NOT NULL DEFAULT 'default',
+                    stack TEXT NOT NULL DEFAULT 'general'
                 )
             """)
 
@@ -117,6 +119,8 @@ class DatabaseManager:
                     duration_ms INTEGER NOT NULL,
                     cwd TEXT,
                     tool_category TEXT NOT NULL,
+                    project TEXT NOT NULL DEFAULT 'default',
+                    stack TEXT NOT NULL DEFAULT 'general',
                     FOREIGN KEY(incident_id) REFERENCES incidents(id)
                 )
             """)
@@ -166,7 +170,9 @@ class DatabaseManager:
                     service TEXT NOT NULL,
                     symptom_signature TEXT,
                     negative_knowledge_json TEXT,
-                    verification_commands_json TEXT
+                    verification_commands_json TEXT,
+                    project TEXT NOT NULL DEFAULT 'default',
+                    stack TEXT NOT NULL DEFAULT 'general'
                 )
             """)
 
@@ -222,6 +228,8 @@ class DatabaseManager:
                 ("symptoms_json", "TEXT DEFAULT '[]'"),
                 ("root_cause_category", "TEXT DEFAULT 'Unknown'"),
                 ("summary", "TEXT DEFAULT ''"),
+                ("project", "TEXT DEFAULT 'default'"),
+                ("stack", "TEXT DEFAULT 'general'"),
             ])
 
             ensure_columns("events", [
@@ -231,6 +239,8 @@ class DatabaseManager:
                 ("classification", "TEXT DEFAULT 'unknown'"),
                 ("status", "TEXT DEFAULT 'unknown'"),
                 ("tool_category", "TEXT DEFAULT 'system'"),
+                ("project", "TEXT DEFAULT 'default'"),
+                ("stack", "TEXT DEFAULT 'general'"),
             ])
 
             ensure_columns("causal_chains", [
@@ -257,13 +267,113 @@ class DatabaseManager:
                 ("provenance_json", "TEXT DEFAULT '{}'"),
                 ("created_at", "TEXT"),
                 ("updated_at", "TEXT"),
+                ("project", "TEXT DEFAULT 'default'"),
+                ("stack", "TEXT DEFAULT 'general'"),
             ])
 
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_events_incident ON events(incident_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_evidence_incident ON evidence(incident_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_project ON incidents(project)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_runbooks_service ON runbooks(service, root_cause_category)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_runbooks_project ON runbooks(project)")
             conn.commit()
+
+        self._migrate_legacy_db_if_needed()
+
+    def _migrate_legacy_db_if_needed(self) -> None:
+        """Migrates any existing records from legacy opsgenome.db to global.db with 'legacy_project' tag."""
+        if self.db_path == ":memory:":
+            return
+        current_path = Path(self.db_path)
+        legacy_path = current_path.parent / "opsgenome.db"
+        if not legacy_path.exists():
+            return
+        try:
+            if legacy_path.resolve() == current_path.resolve():
+                return
+        except Exception:
+            return
+
+        try:
+            with sqlite3.connect(str(legacy_path)) as legacy_conn:
+                legacy_conn.row_factory = sqlite3.Row
+                l_cur = legacy_conn.cursor()
+                l_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='incidents'")
+                if not l_cur.fetchone():
+                    return
+
+                with self._get_connection() as conn:
+                    cur = conn.cursor()
+                    # 1. Migrate Incidents
+                    l_cur.execute("SELECT * FROM incidents")
+                    for r in l_cur.fetchall():
+                        cols = list(r.keys())
+                        proj = r["project"] if "project" in cols and r["project"] else "legacy_project"
+                        stk = r["stack"] if "stack" in cols and r["stack"] else "general"
+                        cur.execute(
+                            """INSERT OR IGNORE INTO incidents
+                            (id, started_at, ended_at, trigger_source, status, title, service, environment, severity, resolved_by, symptoms_json, root_cause_category, summary, project, stack)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (
+                                r["id"], r["started_at"], r["ended_at"] if "ended_at" in cols else None,
+                                r["trigger_source"], r["status"], r["title"], r["service"], r["environment"],
+                                r["severity"], r["resolved_by"], r["symptoms_json"] if "symptoms_json" in cols else "[]",
+                                r["root_cause_category"] if "root_cause_category" in cols else "Unknown",
+                                r["summary"] if "summary" in cols else "",
+                                proj, stk,
+                            ),
+                        )
+
+                    # 2. Migrate Events
+                    l_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='events'")
+                    if l_cur.fetchone():
+                        l_cur.execute("SELECT * FROM events")
+                        for r in l_cur.fetchall():
+                            cols = list(r.keys())
+                            cur.execute(
+                                """INSERT OR IGNORE INTO events
+                                (id, incident_id, schema_version, timestamp, raw_command, exit_code, stdout_snippet, stderr_snippet, signal_weight, classification, duration_ms, cwd, tool_category, sequence_idx, project, stack)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (
+                                    r["id"], r["incident_id"], r["schema_version"] if "schema_version" in cols else "1.0",
+                                    r["timestamp"], r["raw_command"], r["exit_code"],
+                                    r["stdout_snippet"] if "stdout_snippet" in cols else "",
+                                    r["stderr_snippet"] if "stderr_snippet" in cols else "",
+                                    r["signal_weight"] if "signal_weight" in cols else 0.5,
+                                    r["classification"] if "classification" in cols else "unknown",
+                                    r["duration_ms"] if "duration_ms" in cols else 0,
+                                    r["cwd"] if "cwd" in cols else "",
+                                    r["tool_category"] if "tool_category" in cols else "system",
+                                    r["sequence_idx"] if "sequence_idx" in cols else 0,
+                                    r["project"] if "project" in cols and r["project"] else "legacy_project",
+                                    r["stack"] if "stack" in cols and r["stack"] else "general",
+                                ),
+                            )
+
+                    # 3. Migrate Runbooks
+                    l_cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='runbooks'")
+                    if l_cur.fetchone():
+                        l_cur.execute("SELECT * FROM runbooks")
+                        for r in l_cur.fetchall():
+                            cols = list(r.keys())
+                            cur.execute(
+                                """INSERT OR IGNORE INTO runbooks
+                                (id, causal_chain_id, title, root_cause_category, steps_json, success_count, failure_count, confidence_score, version, last_matched_at, service, symptom_signature, project, stack)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                (
+                                    r["id"], r["causal_chain_id"] if "causal_chain_id" in cols else "",
+                                    r["title"], r["root_cause_category"], r["steps_json"],
+                                    r["success_count"], r["failure_count"], r["confidence_score"],
+                                    r["version"], r["last_matched_at"], r["service"],
+                                    r["symptom_signature"] if "symptom_signature" in cols else "",
+                                    r["project"] if "project" in cols and r["project"] else "legacy_project",
+                                    r["stack"] if "stack" in cols and r["stack"] else "general",
+                                ),
+                            )
+                    conn.commit()
+        except Exception:
+            pass
 
     # --- Incidents ---
 
@@ -303,6 +413,8 @@ class DatabaseManager:
                 "symptoms_json": json.dumps(clean_symptoms),
                 "root_cause_category": incident.root_cause_category,
                 "summary": clean_summary,
+                "project": incident.project,
+                "stack": incident.stack,
             }
 
             valid_cols = [c for c in cols if c in data_map]
@@ -328,6 +440,7 @@ class DatabaseManager:
         limit: int = 50,
         status: IncidentStatus | None = None,
         service: str | None = None,
+        project: str | None = None,
     ) -> list[Incident]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -340,6 +453,9 @@ class DatabaseManager:
             if service:
                 conditions.append("service = ?")
                 params.append(service)
+            if project:
+                conditions.append("project = ?")
+                params.append(project)
 
             where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             params.append(limit)
@@ -380,6 +496,8 @@ class DatabaseManager:
             symptoms=json.loads(row["symptoms_json"] or "[]") if "symptoms_json" in keys else [],
             root_cause_category=row["root_cause_category"] if "root_cause_category" in keys and row["root_cause_category"] else "Unknown",
             summary=row["summary"] if "summary" in keys and row["summary"] else "",
+            project=row["project"] if "project" in keys and row["project"] else "default",
+            stack=row["stack"] if "stack" in keys and row["stack"] else "general",
         )
 
     # --- Events (Captured Commands) ---
@@ -423,6 +541,8 @@ class DatabaseManager:
                 "cwd": event.cwd,
                 "tool_category": event.tool_category,
                 "sequence_idx": event.sequence_idx,
+                "project": event.project,
+                "stack": event.stack,
             }
 
             valid_cols = [c for c in cols if c in data_map]
@@ -465,6 +585,8 @@ class DatabaseManager:
                         cwd=r["cwd"] if "cwd" in r.keys() and r["cwd"] else "",
                         tool_category=r["tool_category"] if "tool_category" in r.keys() else "system",
                         sequence_idx=r["sequence_idx"] if "sequence_idx" in r.keys() and r["sequence_idx"] is not None else 0,
+                        project=r["project"] if "project" in r.keys() and r["project"] else "default",
+                        stack=r["stack"] if "stack" in r.keys() and r["stack"] else "general",
                     )
                 )
             return events
@@ -700,6 +822,8 @@ class DatabaseManager:
                 "provenance_json": json.dumps(runbook.provenance.model_dump(), default=str) if hasattr(runbook, 'provenance') else "{}",
                 "created_at": runbook.created_at.isoformat() if hasattr(runbook, 'created_at') else now_iso,
                 "updated_at": runbook.updated_at.isoformat() if hasattr(runbook, 'updated_at') else now_iso,
+                "project": runbook.project,
+                "stack": runbook.stack,
             }
 
             valid_cols = [c for c in cols if c in data_map]
@@ -711,15 +835,19 @@ class DatabaseManager:
             conn.commit()
         return runbook
 
-    def list_runbooks(self, service: str | None = None) -> list[Runbook]:
+    def list_runbooks(self, service: str | None = None, project: str | None = None) -> list[Runbook]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            conditions: list[str] = []
+            params: list[Any] = []
             if service:
-                cursor.execute(
-                    "SELECT * FROM runbooks WHERE service = ? ORDER BY confidence_score DESC", (service,)
-                )
-            else:
-                cursor.execute("SELECT * FROM runbooks ORDER BY confidence_score DESC")
+                conditions.append("service = ?")
+                params.append(service)
+            if project:
+                conditions.append("project = ?")
+                params.append(project)
+            where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            cursor.execute(f"SELECT * FROM runbooks {where_clause} ORDER BY confidence_score DESC", tuple(params))
             rows = cursor.fetchall()
             return [self._row_to_runbook(r) for r in rows]
 
@@ -778,6 +906,8 @@ class DatabaseManager:
             why_why_not=wwn,
             evidence_citations=ev_citations,
             confidence_display=conf_display,
+            project=row["project"] if "project" in keys and row["project"] else "default",
+            stack=row["stack"] if "stack" in keys and row["stack"] else "general",
         )
 
     # --- Signatures & Drift ---

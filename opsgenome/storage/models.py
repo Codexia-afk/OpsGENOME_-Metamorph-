@@ -16,6 +16,8 @@ from typing import Any
 import uuid
 from pydantic import BaseModel, Field
 
+from opsgenome.storage.project_context import detect_project, detect_stack
+
 
 class TriggerSource(str, Enum):
     MANUAL = "manual"
@@ -119,12 +121,18 @@ class Incident(BaseModel):
     summary: str = ""
     candidate_discard_at: datetime | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    project: str = "default"
+    stack: str = "general"
 
     def model_post_init(self, __context: Any) -> None:
         if self.trigger_type:
             self.trigger_source = self.trigger_type
         else:
             self.trigger_type = self.trigger_source
+        if self.project == "default":
+            self.project = detect_project()
+        if self.stack == "general":
+            self.stack = detect_stack(" ".join(self.symptoms or []) + " " + (self.title or "") + " " + (self.service or ""))
 
 
 class Event(BaseModel):
@@ -156,6 +164,8 @@ class Event(BaseModel):
     state_delta_summary: str = ""
     before_snapshot: Any | None = None
     after_snapshot: Any | None = None
+    project: str = "default"
+    stack: str = "general"
 
     def model_post_init(self, __context: Any) -> None:
         if self.command_redacted and not self.raw_command:
@@ -170,6 +180,10 @@ class Event(BaseModel):
             self.classification = self.status
         else:
             self.status = self.classification
+        if self.project == "default":
+            self.project = detect_project(self.cwd)
+        if self.stack == "general":
+            self.stack = detect_stack(self.raw_command or self.command_redacted, cwd=self.cwd)
 
 
 CapturedEvent = Event
@@ -298,6 +312,8 @@ class Runbook(BaseModel):
     confidence_display: str = "Not enough data yet (N=1)"
     ranked_hypotheses: list[RankedHypothesis] = Field(default_factory=list)
     disambiguation_required: bool = False
+    project: str = "default"
+    stack: str = "general"
 
     def model_post_init(self, __context: Any) -> None:
         if self.confidence_score and not self.earned_confidence_score:
@@ -308,6 +324,11 @@ class Runbook(BaseModel):
             self.negative_knowledge_dead_ends = self.known_dead_ends
         elif self.negative_knowledge_dead_ends and not self.known_dead_ends:
             self.known_dead_ends = self.negative_knowledge_dead_ends
+        if self.project == "default":
+            self.project = detect_project()
+        if self.stack == "general":
+            cmds = " ".join(s.command for s in self.steps) if self.steps else ""
+            self.stack = detect_stack(cmds or self.service)
 
 
 class RecurrenceSignature(BaseModel):

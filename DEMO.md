@@ -1,6 +1,8 @@
 # OpsGenome: 5-Minute Hackathon Demo Script
 
 > **The Core Thesis:** "Production systems remember what happened. OpsGenome remembers why the engineer fixed it. AI proposes; deterministic evidence verifies."
+>
+> 🚀 **Looking for the fast 2.5-minute copy-paste cheatsheet with Benglish voiceover?** See **[LIVE_DEMO_COMMANDS.md](LIVE_DEMO_COMMANDS.md)**.
 
 ---
 
@@ -118,6 +120,7 @@
 | **"Why not just use Confluence or Notion runbooks?"** | Confluence runbooks are written days after the incident from fuzzy memory, take hours to write, are never updated, and miss all the dead ends. OpsGenome captures real-world actions non-intrusively from terminal hooks and evaluates state deltas deterministically via live Kubernetes API polling. |
 | **"What if your AI hallucinates a dangerous command like `rm -rf`?"** | Our AI engine is strictly constrained: runbook steps MUST cite existing captured event IDs. If an LLM response cites a command ID not present in the verified incident, our ingestion validator immediately rejects it. Furthermore, recommendations are display-only—OpsGenome never executes commands automatically. |
 | **"How does this scale to thousands of services?"** | Our storage layer uses lightweight SQLite with deterministic signature indexing. In our benchmarks, recurrence signature intake matching runs in 0.25ms (155ms across 10,000 historical items), while in-memory secret redaction processes over 42,000 events/sec. Hosted deployments can drop in PostgreSQL/pgvector using our exact same storage repository interface. |
+| **"Why does cross-project matching require extra confirmation while same-project fixes don't?"** | OpsGenome enforces an explicit **Trust Asymmetry** architectural invariant. Within the same project, a verified runbook shares the identical codebase, deployment topology, and runtime environment. Across different projects on the same machine, even if the error signature is identical (e.g. `CrashLoopBackOff` or `OOMKilled`), the operational context may differ (different namespaces, resource limits, or configuration schemas). Blindly applying a fix from another project introduces severe systemic risk. Therefore, cross-project matches are explicitly flagged as `[CROSS-PROJECT MATCH - UNVALIDATED IN THIS PROJECT]`. The Permission Gate strictly forbids auto-apply under any flag (`--auto-approve` / `--yolo`), and mandates a human dual-confirmation step where the engineer must explicitly type `CONFIRM FROM <source_project>`. This guarantees intentionality and human verification while still sharing operational lessons across repositories without any cloud/network leakage. |
 
 ---
 
