@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opsgenome"
+version = "1.0.0"
+description = "OpsGenome: The Operational Memory Engine"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "OpsGenome Team" }]
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "pydantic>=2.10.0",
+    "click>=8.1.0",
+    "rich>=13.9.0",
+    "cryptography>=43.0.0",
+    "httpx>=0.28.0",
+    "pytest>=8.3.0",
+    "python-multipart>=0.0.18"
+]
+
+[project.scripts]
+opsgenome = "opsgenome.cli.main:cli"

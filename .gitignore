@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# OpsGenome local runtime data, databases, and encryption keys
+.opsgenome_data/
+*.db
+*.key
+
+# Testing & caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~

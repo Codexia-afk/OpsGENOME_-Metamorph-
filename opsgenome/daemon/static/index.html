@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpsGenome — The Operational Memory Engine</title>
+    
+    <!-- Google Fonts: Inter & Fira Code (Linear / Apple aesthetic) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & Babel Standalone -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                        mono: ['Fira Code', 'ui-monospace', 'monospace'],
+                    },
+                    colors: {
+                        slateBg: '#F8FAFC',
+                        surface: '#FFFFFF',
+                        borderSubtle: '#E2E8F0',
+                        textPrimary: '#0F172A',
+                        textSecondary: '#64748B',
+                        accent: {
+                            50: '#F0F9FF',
+                            100: '#E0F2FE',
+                            500: '#0EA5E9',
+                            600: '#0284C7',
+                            700: '#0369A1',
+                        },
+                        success: {
+                            50: '#F0FDF4',
+                            100: '#DCFCE7',
+                            500: '#16A34A',
+                            600: '#15803D',
+                        },
+                        warning: {
+                            50: '#FFFBEB',
+                            100: '#FEF3C7',
+                            500: '#D97706',
+                            600: '#B45309',
+                        },
+                        danger: {
+                            50: '#FEF2F2',
+                            100: '#FEE2E2',
+                            500: '#DC2626',
+                            600: '#B91C1C',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        :root {
+            --bg-canvas: #F8FAFC;
+            --surface-card: #FFFFFF;
+            --border-line: #E2E8F0;
+            --text-main: #0F172A;
+            --text-sub: #64748B;
+            --accent-primary: #0EA5E9;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-canvas);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            background-image: radial-gradient(rgba(148, 163, 184, 0.15) 1px, transparent 1px);
+            background-size: 24px 24px;
+            letter-spacing: -0.011em;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Professional SRE Panel & Card */
+        .sre-panel, .clay-poster {
+            background: #FFFFFF;
+            border-radius: 16px;
+            border: 1px solid var(--border-line);
+            box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+        }
+
+        .sre-card, .clay-card {
+            background: #FFFFFF;
+            border-radius: 12px;
+            border: 1px solid var(--border-line);
+            box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.04), 0 1px 2px -1px rgba(15, 23, 42, 0.02);
+            transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .sre-card:hover, .clay-card:hover {
+            border-color: #CBD5E1;
+            box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.07), 0 2px 4px -1px rgba(15, 23, 42, 0.03);
+            transform: translateY(-1px);
+        }
+
+        /* Accent & Status Panels */
+        .clay-mint, .sre-panel-success {
+            background: #F0FDF4;
+            border: 1px solid #BBF7D0;
+            border-radius: 12px;
+            color: #166534;
+        }
+
+        .clay-amber, .sre-panel-warning {
+            background: #FFFBEB;
+            border: 1px solid #FDE68A;
+            border-radius: 12px;
+            color: #92400E;
+        }
+
+        .clay-error, .sre-panel-danger {
+            background: #FEF2F2;
+            border: 1px solid #FECACA;
+            border-radius: 12px;
+            color: #991B1B;
+        }
+
+        /* Modern SRE Buttons */
+        .clay-btn, .sre-btn {
+            font-weight: 500;
+            font-size: 13px;
+            line-height: 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 7px 14px;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+        
+        .clay-btn-default, .sre-btn-primary {
+            background: #0EA5E9;
+            color: #FFFFFF;
+            border: 1px solid #0284C7;
+            box-shadow: 0 1px 2px 0 rgba(14, 165, 233, 0.25);
+        }
+        .clay-btn-default:hover, .sre-btn-primary:hover {
+            background: #0284C7;
+            box-shadow: 0 2px 4px 0 rgba(14, 165, 233, 0.35);
+        }
+        .clay-btn-default:active, .sre-btn-primary:active {
+            background: #0369A1;
+            transform: translateY(1px);
+        }
+
+        .clay-btn-neutral, .sre-btn-secondary {
+            background: #FFFFFF;
+            color: #0F172A;
+            border: 1px solid #E2E8F0;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+        }
+        .clay-btn-neutral:hover, .sre-btn-secondary:hover {
+            background: #F8FAFC;
+            border-color: #CBD5E1;
+        }
+
+        .clay-btn-danger, .sre-btn-danger {
+            background: #DC2626;
+            color: #FFFFFF;
+            border: 1px solid #B91C1C;
+            box-shadow: 0 1px 2px 0 rgba(220, 38, 38, 0.25);
+        }
+        .clay-btn-danger:hover, .sre-btn-danger:hover {
+            background: #B91C1C;
+        }
+
+        .clay-btn-disabled, .sre-btn-disabled {
+            background: #F1F5F9;
+            color: #94A3B8;
+            border: 1px solid #E2E8F0;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* Search Pill */
+        .clay-input-pill, .sre-input-search {
+            background: #FFFFFF;
+            border-radius: 8px;
+            border: 1px solid #CBD5E1;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+            transition: all 0.15s ease;
+        }
+        .clay-input-pill:focus-within, .sre-input-search:focus-within {
+            border-color: #0EA5E9;
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.18);
+        }
+
+        /* Refined SRE Badges */
+        .clay-chip, .sre-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 3px 9px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            line-height: 16px;
+        }
+        .clay-chip-mint, .sre-badge-success {
+            background: #F0FDF4;
+            color: #15803D;
+            border: 1px solid #BBF7D0;
+        }
+        .clay-chip-amber, .sre-badge-warning {
+            background: #FFFBEB;
+            color: #B45309;
+            border: 1px solid #FDE68A;
+        }
+        .clay-chip-error, .sre-badge-danger {
+            background: #FEF2F2;
+            color: #B91C1C;
+            border: 1px solid #FECACA;
+        }
+        .clay-chip-neutral, .sre-badge-neutral {
+            background: #F8FAFC;
+            color: #475569;
+            border: 1px solid #E2E8F0;
+        }
+        .clay-chip-token, .sre-badge-accent {
+            background: #F0F9FF;
+            color: #0284C7;
+            border: 1px solid #BAE6FD;
+        }
+
+        /* Consolidated 5-Tab Bar */
+        .clay-tab-bar, .sre-tab-bar {
+            background: #F1F5F9;
+            border-radius: 10px;
+            padding: 3px;
+            border: 1px solid #E2E8F0;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .clay-tab-item, .sre-tab-item {
+            padding: 6px 16px;
+            border-radius: 7px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #64748B;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+        }
+        .clay-tab-item:hover, .sre-tab-item:hover {
+            color: #0F172A;
+        }
+        .clay-tab-active, .sre-tab-active {
+            background: #FFFFFF;
+            color: #0F172A;
+            font-weight: 600;
+            box-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.08), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+        }
+
+        /* Scrubber & Timeline */
+        .timeline-scrubber {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            background: #E2E8F0;
+            border-radius: 3px;
+            outline: none;
+        }
+        .timeline-scrubber::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #0EA5E9;
+            cursor: pointer;
+            border: 2px solid #FFFFFF;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+            transition: transform 0.1s ease;
+        }
+        .timeline-scrubber::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Provenance Graph Vertical Step Connector */
+        .prov-step-line {
+            position: absolute;
+            left: 20px;
+            top: 40px;
+            bottom: -20px;
+            width: 2px;
+            background: #E2E8F0;
+            z-index: 0;
+        }
+        .prov-step-active {
+            background: #0EA5E9;
+        }
+
+        /* Code & Monospace Blocks */
+        pre, code {
+            font-family: 'Fira Code', ui-monospace, monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <!-- Main OpsGenome Frontend App Script -->
+    <script type="text/babel" src="/static/app.jsx"></script>
+</body>
+</html>

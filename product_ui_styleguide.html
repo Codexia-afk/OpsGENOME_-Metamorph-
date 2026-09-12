@@ -1,0 +1,1231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Product UI Styleguide — Soft 3D Claymorphism</title>
+  <!-- Google Fonts: Inter & Poppins -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            heading: ['Poppins', 'Inter', 'sans-serif'],
+          },
+          colors: {
+            canvas: '#F3F1EC',
+            mint: {
+              50: '#F0FAF6',
+              100: '#DDF4EC',
+              200: '#C2EADB',
+              300: '#A8E6CF',
+              400: '#8DE0C2',
+              500: '#69D3AF',
+            },
+            primaryMint: '#A8E6CF',
+            primaryToken: '#9EBCEE',
+            surfaceToken: '#FFFFFE',
+            borderToken: '#E9B520',
+            focusToken: '#00CFCC',
+            warningSoft: '#FEF3C7',
+            warningClay: '#FDE68A',
+            errorSoft: '#FFE4E6',
+            errorClay: '#FECDD3',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* -------------------------------------------------------------
+       GLOBAL RULER & GRAPH CANVAS STYLES
+       ------------------------------------------------------------- */
+    :root {
+      --canvas-bg: #F3F1EC;
+      --ruler-line: rgba(140, 130, 115, 0.22);
+      --ruler-subline: rgba(140, 130, 115, 0.12);
+      --ruler-text: #9E9689;
+      --grid-dot: rgba(160, 150, 135, 0.16);
+      
+      /* Clay color palettes */
+      --clay-mint-start: #C5F3E2;
+      --clay-mint-mid: #A8E6CF;
+      --clay-mint-end: #91DEC3;
+      --clay-mint-shadow: rgba(85, 175, 145, 0.32);
+      
+      --clay-white-start: #FFFFFF;
+      --clay-white-end: #F7F5F0;
+      --clay-white-shadow: rgba(185, 170, 150, 0.24);
+      
+      --clay-amber-start: #FBF0CC;
+      --clay-amber-mid: #E9B520;
+      --clay-amber-shadow: rgba(195, 145, 20, 0.28);
+    }
+
+    body {
+      background-color: var(--canvas-bg);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      color: #1A1A1A;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      position: relative;
+      background-image: 
+        radial-gradient(var(--grid-dot) 1px, transparent 1px),
+        linear-gradient(to right, rgba(140, 130, 115, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(140, 130, 115, 0.04) 1px, transparent 1px);
+      background-size: 24px 24px, 120px 120px, 120px 120px;
+    }
+
+    /* Top Ruler Bar */
+    .top-ruler {
+      position: sticky;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 28px;
+      background: rgba(243, 241, 236, 0.94);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--ruler-line);
+      z-index: 50;
+      display: flex;
+      align-items: flex-end;
+      padding-left: 36px;
+    }
+    .ruler-tick-group {
+      flex: 1;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      height: 100%;
+      position: relative;
+    }
+    .ruler-major {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+      width: 1px;
+    }
+    .ruler-major::before {
+      content: '';
+      width: 1px;
+      height: 10px;
+      background: var(--ruler-line);
+    }
+    .ruler-num {
+      position: absolute;
+      top: 2px;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--ruler-text);
+      font-family: 'Inter', monospace;
+      transform: translateX(-50%);
+    }
+
+    /* Left Ruler Bar */
+    .left-ruler {
+      position: fixed;
+      top: 28px;
+      left: 0;
+      bottom: 0;
+      width: 32px;
+      background: rgba(243, 241, 236, 0.94);
+      backdrop-filter: blur(6px);
+      border-right: 1px solid var(--ruler-line);
+      z-index: 45;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding-top: 16px;
+      padding-bottom: 30px;
+    }
+    .left-major {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      position: relative;
+      height: 1px;
+      width: 100%;
+    }
+    .left-major::after {
+      content: '';
+      height: 1px;
+      width: 9px;
+      background: var(--ruler-line);
+    }
+    .left-num {
+      position: absolute;
+      right: 12px;
+      font-size: 8.5px;
+      font-weight: 600;
+      color: var(--ruler-text);
+      font-family: 'Inter', monospace;
+    }
+
+    /* Corner Ruler Box */
+    .corner-ruler {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 32px;
+      height: 28px;
+      background: #E8E5DD;
+      border-bottom: 1px solid var(--ruler-line);
+      border-right: 1px solid var(--ruler-line);
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      color: var(--ruler-text);
+      font-weight: 700;
+    }
+
+    /* -------------------------------------------------------------
+       CLAYMORPHISM CORE UTILITIES
+       ------------------------------------------------------------- */
+    /* Poster Main Canvas */
+    .clay-poster {
+      background: #FFFFFF;
+      border-radius: 28px;
+      box-shadow: 
+        0 28px 60px -15px rgba(165, 150, 130, 0.25),
+        0 10px 24px -5px rgba(165, 150, 130, 0.12),
+        inset 0 1px 2px rgba(255, 255, 255, 0.9),
+        0 0 0 1px rgba(220, 212, 200, 0.45);
+    }
+
+    /* Neutral Clay Card / Panel */
+    .clay-card {
+      background: linear-gradient(145deg, #FFFFFF 0%, #FAF8F4 100%);
+      border-radius: 20px;
+      box-shadow: 
+        8px 12px 24px -4px rgba(180, 165, 145, 0.22),
+        0 3px 8px -2px rgba(180, 165, 145, 0.10),
+        inset 3px 3px 6px rgba(255, 255, 255, 0.95),
+        inset -3px -3px 6px rgba(180, 165, 145, 0.14);
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* Mint Primary Clay */
+    .clay-mint {
+      background: linear-gradient(140deg, #C2F3E1 0%, #A8E6CF 55%, #92DEC4 100%);
+      border-radius: 20px;
+      box-shadow: 
+        7px 12px 22px -3px rgba(75, 165, 138, 0.38),
+        0 3px 6px -1px rgba(75, 165, 138, 0.20),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.85),
+        inset -2.5px -2.5px 5px rgba(52, 136, 107, 0.22);
+      color: #124A37;
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* White Surface Clay Blob */
+    .clay-surface-blob {
+      background: linear-gradient(145deg, #FFFFFF 0%, #F5F3ED 100%);
+      box-shadow: 
+        8px 14px 26px -4px rgba(175, 160, 140, 0.26),
+        0 4px 8px -1px rgba(175, 160, 140, 0.12),
+        inset 3px 3px 6px rgba(255, 255, 255, 1),
+        inset -3px -3px 6px rgba(185, 170, 150, 0.18);
+    }
+
+    /* Amber / Border Clay Blob */
+    .clay-amber-blob {
+      background: linear-gradient(145deg, #FBE68A 0%, #E9B520 60%, #D49D10 100%);
+      box-shadow: 
+        8px 14px 24px -4px rgba(195, 145, 25, 0.38),
+        0 3px 6px -1px rgba(195, 145, 25, 0.2),
+        inset 3px 3px 6px rgba(255, 255, 255, 0.75),
+        inset -3px -3px 6px rgba(145, 95, 5, 0.26);
+    }
+
+    /* Focus Ring Donut Shape with Glow */
+    .clay-focus-ring-donut {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: #FAF8F4;
+      border: 8px solid #00CFCC;
+      box-shadow: 
+        0 0 0 4px rgba(0, 207, 204, 0.28),
+        8px 12px 24px -3px rgba(0, 185, 180, 0.35),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.9),
+        inset -2px -2px 4px rgba(0, 130, 128, 0.25);
+      position: relative;
+    }
+
+    /* Clay Buttons */
+    .clay-btn {
+      font-weight: 600;
+      border-radius: 9999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      user-select: none;
+    }
+    
+    .clay-btn-default {
+      background: linear-gradient(140deg, #C2F3E1 0%, #A8E6CF 55%, #92DEC4 100%);
+      color: #0E4733;
+      box-shadow: 
+        6px 10px 20px -3px rgba(75, 165, 138, 0.40),
+        0 3px 6px -1px rgba(75, 165, 138, 0.22),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.85),
+        inset -2.5px -2.5px 5px rgba(52, 136, 107, 0.22);
+    }
+    .clay-btn-default:hover {
+      transform: translateY(-2px);
+      box-shadow: 
+        8px 14px 26px -3px rgba(75, 165, 138, 0.48),
+        0 4px 8px -1px rgba(75, 165, 138, 0.26),
+        inset 3px 3px 6px rgba(255, 255, 255, 0.95),
+        inset -2.5px -2.5px 5px rgba(52, 136, 107, 0.22);
+    }
+    .clay-btn-default:active {
+      transform: translateY(1px);
+      box-shadow: 
+        3px 5px 12px -2px rgba(75, 165, 138, 0.35),
+        inset 2px 2px 4px rgba(45, 120, 95, 0.25),
+        inset -1px -1px 3px rgba(255, 255, 255, 0.6);
+    }
+
+    .clay-btn-hover-state {
+      background: linear-gradient(140deg, #C2F3E1 0%, #A8E6CF 55%, #92DEC4 100%);
+      color: #0E4733;
+      transform: translateY(-2px);
+      box-shadow: 
+        0 0 0 4px rgba(0, 207, 204, 0.40),
+        0 0 16px rgba(0, 207, 204, 0.35),
+        8px 14px 26px -3px rgba(75, 165, 138, 0.45),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.95),
+        inset -2.5px -2.5px 5px rgba(52, 136, 107, 0.22);
+    }
+
+    .clay-btn-disabled {
+      background: linear-gradient(145deg, #EBE9E2 0%, #DDD9D0 100%);
+      color: #9C968A;
+      cursor: not-allowed;
+      box-shadow: 
+        4px 6px 14px -3px rgba(175, 165, 150, 0.25),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.8),
+        inset -2px -2px 4px rgba(160, 150, 135, 0.16);
+    }
+
+    /* Clay Search Input */
+    .clay-input-pill {
+      background: linear-gradient(145deg, #FAF8F4 0%, #F1EEE6 100%);
+      border-radius: 9999px;
+      box-shadow: 
+        inset 3px 3px 6px rgba(165, 150, 135, 0.22),
+        inset -2px -2px 5px rgba(255, 255, 255, 0.95),
+        0 3px 8px -2px rgba(190, 175, 155, 0.18);
+      border: 1px solid rgba(225, 215, 200, 0.6);
+      transition: all 0.2s ease;
+    }
+    .clay-input-pill:focus-within {
+      background: #FFFFFF;
+      box-shadow: 
+        0 0 0 3px rgba(0, 207, 204, 0.35),
+        inset 2px 2px 5px rgba(165, 150, 135, 0.18),
+        inset -2px -2px 4px rgba(255, 255, 255, 0.9);
+      border-color: #00CFCC;
+    }
+
+    /* Clay Chips */
+    .clay-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 16px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+    .clay-chip-neutral {
+      background: linear-gradient(145deg, #FFFFFF 0%, #F4F1EA 100%);
+      color: #4A463F;
+      box-shadow: 
+        4px 6px 14px -2px rgba(175, 160, 140, 0.22),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.95),
+        inset -2px -2px 4px rgba(180, 165, 145, 0.14);
+    }
+    .clay-chip-neutral:hover {
+      transform: translateY(-1px);
+    }
+    .clay-chip-selected {
+      background: linear-gradient(140deg, #C2F3E1 0%, #A8E6CF 55%, #92DEC4 100%);
+      color: #0E4733;
+      box-shadow: 
+        5px 8px 16px -2px rgba(75, 165, 138, 0.38),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.9),
+        inset -2px -2px 4px rgba(52, 136, 107, 0.22);
+    }
+    .clay-chip-disabled {
+      background: linear-gradient(145deg, #ECEAE4 0%, #E2DFD7 100%);
+      color: #A39D91;
+      cursor: not-allowed;
+      box-shadow: 
+        2px 3px 8px -1px rgba(180, 170, 155, 0.18),
+        inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.75),
+        inset -1.5px -1.5px 3px rgba(160, 150, 135, 0.12);
+    }
+
+    /* Clay Tabs Variant 1 (Pill group) */
+    .clay-tab-bar {
+      background: linear-gradient(145deg, #F1EEE7 0%, #E7E3D9 100%);
+      border-radius: 9999px;
+      padding: 5px;
+      display: inline-flex;
+      gap: 4px;
+      box-shadow: 
+        inset 2.5px 2.5px 5px rgba(160, 145, 130, 0.22),
+        inset -2px -2px 4px rgba(255, 255, 255, 0.9),
+        0 3px 8px -2px rgba(180, 165, 145, 0.15);
+    }
+    .clay-tab-item {
+      padding: 7px 18px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #6C665C;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .clay-tab-active {
+      background: linear-gradient(140deg, #C2F3E1 0%, #A8E6CF 55%, #92DEC4 100%);
+      color: #0E4733;
+      box-shadow: 
+        4px 6px 14px -2px rgba(75, 165, 138, 0.38),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.85),
+        inset -2px -2px 4px rgba(52, 136, 107, 0.22);
+    }
+
+    /* Clay Tabs Variant 2 (Underline style) */
+    .tab-underline-container {
+      display: inline-flex;
+      gap: 28px;
+      border-bottom: 2px solid #E5E0D4;
+      padding-bottom: 4px;
+    }
+    .tab-underline-item {
+      font-size: 14px;
+      font-weight: 500;
+      color: #8C8578;
+      cursor: pointer;
+      padding-bottom: 8px;
+      position: relative;
+      transition: color 0.2s ease;
+    }
+    .tab-underline-active {
+      font-weight: 700;
+      color: #1A1A1A;
+    }
+    .tab-underline-active::after {
+      content: '';
+      position: absolute;
+      bottom: -6px;
+      left: 0;
+      right: 0;
+      height: 4px;
+      border-radius: 4px;
+      background: #A8E6CF;
+      box-shadow: 
+        0 2px 6px rgba(168, 230, 207, 0.6),
+        inset 1px 1px 2px rgba(255, 255, 255, 0.9);
+    }
+
+    /* Clay Alerts */
+    .clay-alert {
+      border-radius: 18px;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+    .clay-alert-success {
+      background: linear-gradient(140deg, #D4F6E9 0%, #B6EED7 100%);
+      color: #0E4733;
+      box-shadow: 
+        6px 10px 22px -3px rgba(75, 165, 138, 0.30),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.9),
+        inset -2.5px -2.5px 5px rgba(52, 136, 107, 0.18);
+    }
+    .clay-alert-warning {
+      background: linear-gradient(140deg, #FEF7D6 0%, #FEEBA3 100%);
+      color: #785404;
+      box-shadow: 
+        6px 10px 22px -3px rgba(215, 165, 30, 0.25),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.95),
+        inset -2.5px -2.5px 5px rgba(185, 135, 15, 0.18);
+    }
+    .clay-alert-error {
+      background: linear-gradient(140deg, #FFE8EB 0%, #FFCCD3 100%);
+      color: #8C1929;
+      box-shadow: 
+        6px 10px 22px -3px rgba(220, 60, 80, 0.22),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.95),
+        inset -2.5px -2.5px 5px rgba(180, 40, 60, 0.16);
+    }
+    .alert-icon-pill {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 
+        2px 3px 6px rgba(0, 0, 0, 0.08),
+        inset 1.5px 1.5px 3px rgba(255, 255, 255, 0.9);
+      flex-shrink: 0;
+    }
+
+    /* -------------------------------------------------------------
+       ELEVATION STACK (Levels 1 to 5)
+       ------------------------------------------------------------- */
+    .elevation-level-1 {
+      box-shadow: 
+        3px 4px 10px -2px rgba(175, 160, 140, 0.16),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.9),
+        inset -2px -2px 4px rgba(180, 165, 145, 0.08);
+    }
+    .elevation-level-2 {
+      box-shadow: 
+        5px 7px 16px -3px rgba(175, 160, 140, 0.22),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.92),
+        inset -2.5px -2.5px 5px rgba(180, 165, 145, 0.12);
+    }
+    .elevation-level-3 {
+      box-shadow: 
+        8px 12px 22px -4px rgba(175, 160, 140, 0.28),
+        inset 3px 3px 6px rgba(255, 255, 255, 0.95),
+        inset -3px -3px 6px rgba(180, 165, 145, 0.16);
+    }
+    .elevation-level-4 {
+      box-shadow: 
+        12px 18px 30px -5px rgba(165, 145, 125, 0.34),
+        0 6px 12px -2px rgba(165, 145, 125, 0.15),
+        inset 3.5px 3.5px 7px rgba(255, 255, 255, 1),
+        inset -3.5px -3.5px 7px rgba(170, 150, 130, 0.20);
+    }
+    .elevation-level-5 {
+      box-shadow: 
+        16px 26px 42px -6px rgba(155, 135, 110, 0.40),
+        0 10px 18px -3px rgba(155, 135, 110, 0.22),
+        inset 4px 4px 8px rgba(255, 255, 255, 1),
+        inset -4px -4px 8px rgba(155, 135, 110, 0.24);
+    }
+
+    /* -------------------------------------------------------------
+       CARDS STACK
+       ------------------------------------------------------------- */
+    .stacked-cards-container {
+      position: relative;
+      min-height: 230px;
+    }
+    .stacked-card-back-2 {
+      position: absolute;
+      top: -16px;
+      left: 16px;
+      right: 16px;
+      height: 100%;
+      border-radius: 24px;
+      background: #EDEAE3;
+      box-shadow: 
+        0 8px 20px -3px rgba(165, 150, 130, 0.22),
+        inset 2px 2px 4px rgba(255, 255, 255, 0.8);
+      z-index: 1;
+      opacity: 0.85;
+      transform: scale(0.96);
+    }
+    .stacked-card-back-1 {
+      position: absolute;
+      top: -8px;
+      left: 8px;
+      right: 8px;
+      height: 100%;
+      border-radius: 24px;
+      background: #F7F5EF;
+      box-shadow: 
+        0 12px 26px -4px rgba(165, 150, 130, 0.25),
+        inset 2.5px 2.5px 5px rgba(255, 255, 255, 0.9);
+      z-index: 2;
+      opacity: 0.95;
+      transform: scale(0.98);
+    }
+    .stacked-card-front {
+      position: relative;
+      border-radius: 24px;
+      background: linear-gradient(145deg, #FFFFFF 0%, #FAFAF7 100%);
+      box-shadow: 
+        10px 18px 34px -5px rgba(165, 150, 130, 0.28),
+        0 4px 10px -2px rgba(165, 150, 130, 0.12),
+        inset 3px 3px 6px rgba(255, 255, 255, 1),
+        inset -3px -3px 6px rgba(185, 170, 150, 0.14);
+      z-index: 3;
+    }
+
+    /* Dimension Annotation lines & arrows */
+    .measurement-line {
+      position: relative;
+      border-bottom: 1.5px dashed #A39B8E;
+      width: 100%;
+    }
+    .measurement-line::before, .measurement-line::after {
+      content: '';
+      position: absolute;
+      top: -4px;
+      width: 1.5px;
+      height: 9px;
+      background: #A39B8E;
+    }
+    .measurement-line::before { left: 0; }
+    .measurement-line::after { right: 0; }
+
+    /* Custom Squircle shape */
+    .squircle-blob {
+      border-radius: 42% 58% 60% 40% / 46% 44% 56% 54%;
+      transition: border-radius 0.4s ease;
+    }
+    .squircle-blob:hover {
+      border-radius: 54% 46% 42% 58% / 40% 58% 42% 60%;
+    }
+  </style>
+</head>
+<body class="antialiased text-[#1A1A1A]">
+
+  <!-- Top Graph Canvas Ruler (1 to 13) -->
+  <div class="top-ruler" aria-hidden="true">
+    <div class="ruler-tick-group">
+      <!-- 13 ruler tick divisions with numbers 1 through 13 -->
+      <div class="ruler-major"><span class="ruler-num">1</span></div>
+      <div class="ruler-major"><span class="ruler-num">2</span></div>
+      <div class="ruler-major"><span class="ruler-num">3</span></div>
+      <div class="ruler-major"><span class="ruler-num">4</span></div>
+      <div class="ruler-major"><span class="ruler-num">5</span></div>
+      <div class="ruler-major"><span class="ruler-num">6</span></div>
+      <div class="ruler-major"><span class="ruler-num">7</span></div>
+      <div class="ruler-major"><span class="ruler-num">8</span></div>
+      <div class="ruler-major"><span class="ruler-num">9</span></div>
+      <div class="ruler-major"><span class="ruler-num">10</span></div>
+      <div class="ruler-major"><span class="ruler-num">11</span></div>
+      <div class="ruler-major"><span class="ruler-num">12</span></div>
+      <div class="ruler-major"><span class="ruler-num">13</span></div>
+    </div>
+  </div>
+
+  <!-- Left Graph Canvas Ruler (0 to 100) -->
+  <div class="left-ruler" aria-hidden="true">
+    <div class="left-major"><span class="left-num">0</span></div>
+    <div class="left-major"><span class="left-num">10</span></div>
+    <div class="left-major"><span class="left-num">20</span></div>
+    <div class="left-major"><span class="left-num">30</span></div>
+    <div class="left-major"><span class="left-num">40</span></div>
+    <div class="left-major"><span class="left-num">50</span></div>
+    <div class="left-major"><span class="left-num">60</span></div>
+    <div class="left-major"><span class="left-num">70</span></div>
+    <div class="left-major"><span class="left-num">80</span></div>
+    <div class="left-major"><span class="left-num">90</span></div>
+    <div class="left-major"><span class="left-num">100</span></div>
+  </div>
+
+  <!-- Corner 0,0 Ruler Notch -->
+  <div class="corner-ruler" aria-hidden="true">px</div>
+
+  <!-- Main Canvas Wrapper with outer ruler offset -->
+  <main class="pl-10 pr-6 pt-6 pb-20 max-w-[1240px] mx-auto">
+    
+    <!-- Large Poster Card Container -->
+    <div class="clay-poster p-8 sm:p-12 lg:p-14 my-4">
+      
+      <!-- Top Header -->
+      <header class="mb-12 border-b border-[#EAE6DD] pb-8">
+        <div class="flex flex-wrap items-baseline justify-between gap-4">
+          <div>
+            <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase text-[#548E7A] bg-[#E2F7EF] mb-3">
+              <span class="w-2 h-2 rounded-full bg-[#3BB88E] animate-pulse"></span>
+              Tactile Design System
+            </span>
+            <h1 class="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight font-heading text-[#111111]">
+              Product UI Styleguide
+            </h1>
+          </div>
+          <div class="flex items-center gap-3 text-xs font-medium text-[#7D766A]">
+            <span class="px-3 py-1.5 rounded-xl bg-[#F4F1EA] border border-[#E4DFD3] font-mono">Grid: 24px</span>
+            <span class="px-3 py-1.5 rounded-xl bg-[#F4F1EA] border border-[#E4DFD3] font-mono">Radius: 24px</span>
+            <span class="px-3 py-1.5 rounded-xl bg-[#E7F8F1] text-[#124A37] border border-[#C5EFE0] font-mono font-semibold">Style: Claymorphic 3D</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- TWO-COLUMN LAYOUT -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16">
+        
+        <!-- =========================================================
+             LEFT COLUMN
+             (Color Tokens, Spacing, Buttons, Inputs, Tabs V1, Alerts)
+             ========================================================= -->
+        <div class="space-y-14">
+          
+          <!-- 1. COLOR TOKENS SECTION -->
+          <section id="color-tokens">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Color Tokens</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">4 Core Swatches</span>
+            </div>
+            
+            <!-- 2x2 Grid of Large Rounded Clay "Blobs" -->
+            <div class="grid grid-cols-2 gap-6">
+              
+              <!-- Swatch 1: Primary Mint -->
+              <div class="clay-card p-5 flex flex-col items-center text-center">
+                <div class="w-24 h-24 mb-4 clay-mint squircle-blob flex items-center justify-center cursor-pointer transition-transform hover:scale-105" title="Click to copy hex">
+                  <svg class="w-6 h-6 text-[#124A37] opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                  </svg>
+                </div>
+                <div class="font-bold text-sm text-[#1A1A1A]">Primary #9EBCEE</div>
+              </div>
+
+              <!-- Swatch 2: Surface White/Cream -->
+              <div class="clay-card p-5 flex flex-col items-center text-center">
+                <div class="w-24 h-24 mb-4 clay-surface-blob squircle-blob flex items-center justify-center cursor-pointer transition-transform hover:scale-105" title="Click to copy hex">
+                  <svg class="w-6 h-6 text-[#A0988A] opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                </div>
+                <div class="font-bold text-sm text-[#1A1A1A]">Surface #FFFFFE</div>
+              </div>
+
+              <!-- Swatch 3: Border Gray/Amber -->
+              <div class="clay-card p-5 flex flex-col items-center text-center">
+                <div class="w-24 h-24 mb-4 clay-amber-blob squircle-blob flex items-center justify-center cursor-pointer transition-transform hover:scale-105" title="Click to copy hex">
+                  <svg class="w-6 h-6 text-[#5B3D00] opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                </div>
+                <div class="font-bold text-sm text-[#1A1A1A]">Border #E9B520</div>
+              </div>
+
+              <!-- Swatch 4: Focus Ring Donut with Glow -->
+              <div class="clay-card p-5 flex flex-col items-center text-center">
+                <div class="w-24 h-24 mb-4 flex items-center justify-center">
+                  <div class="clay-focus-ring-donut flex items-center justify-center cursor-pointer transition-transform hover:scale-105" title="Click to copy hex">
+                    <div class="w-6 h-6 rounded-full bg-[#EBFBFB] shadow-inner"></div>
+                  </div>
+                </div>
+                <div class="font-bold text-sm text-[#1A1A1A]">Focus ring #00CFCC</div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- 2. SPACING SECTION -->
+          <section id="spacing">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Spacing</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Scale & Rhythm</span>
+            </div>
+
+            <!-- Row of Clay Blocks with Measurement Lines Underneath -->
+            <div class="clay-card p-7">
+              <div class="flex items-end justify-between gap-4 pb-4">
+                
+                <!-- Block 1: Large (70px) -->
+                <div class="flex flex-col items-center flex-1">
+                  <div class="w-[70px] h-[70px] clay-mint rounded-[18px] flex items-center justify-center">
+                    <span class="text-xs font-bold font-mono text-[#0E4733]">70</span>
+                  </div>
+                  <div class="w-[70px] mt-4">
+                    <div class="measurement-line"></div>
+                    <div class="text-center font-mono text-[11px] font-bold text-[#6F675A] mt-1.5">70px</div>
+                  </div>
+                </div>
+
+                <!-- Block 2: Medium (20px representation) -->
+                <div class="flex flex-col items-center flex-1">
+                  <div class="w-[45px] h-[45px] clay-card rounded-[14px] flex items-center justify-center border border-[#E9E4DA]">
+                    <span class="text-xs font-bold font-mono text-[#4A443B]">20</span>
+                  </div>
+                  <div class="w-[45px] mt-4">
+                    <div class="measurement-line"></div>
+                    <div class="text-center font-mono text-[11px] font-bold text-[#6F675A] mt-1.5">20px</div>
+                  </div>
+                </div>
+
+                <!-- Block 3: Thin Rectangle (6px representation) -->
+                <div class="flex flex-col items-center flex-1">
+                  <div class="w-[30px] h-[18px] clay-mint rounded-[8px] flex items-center justify-center">
+                    <span class="text-[9px] font-bold font-mono text-[#0E4733]">6</span>
+                  </div>
+                  <div class="w-[30px] mt-4">
+                    <div class="measurement-line"></div>
+                    <div class="text-center font-mono text-[11px] font-bold text-[#6F675A] mt-1.5">6px</div>
+                  </div>
+                </div>
+
+                <!-- Block 4: Small Square (10px representation) -->
+                <div class="flex flex-col items-center flex-1">
+                  <div class="w-[26px] h-[26px] clay-card rounded-[8px] flex items-center justify-center border border-[#E9E4DA]">
+                    <span class="text-[9px] font-bold font-mono text-[#4A443B]">10</span>
+                  </div>
+                  <div class="w-[26px] mt-4">
+                    <div class="measurement-line"></div>
+                    <div class="text-center font-mono text-[11px] font-bold text-[#6F675A] mt-1.5">10px</div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </section>
+
+          <!-- 3. BUTTONS SECTION -->
+          <section id="buttons">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Buttons</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">States & Feedback</span>
+            </div>
+
+            <!-- Row of 3 Pill Clay Buttons: Default, Hover, Disabled -->
+            <div class="clay-card p-6 flex flex-wrap items-center justify-between gap-4">
+              
+              <!-- 1. Default State -->
+              <div class="flex flex-col items-center gap-2">
+                <button type="button" class="clay-btn clay-btn-default px-6 py-3 text-sm">
+                  Primary Action
+                </button>
+                <span class="text-[11px] font-mono text-[#8C8476]">Default</span>
+              </div>
+
+              <!-- 2. Hover State (Glowing mint outline) -->
+              <div class="flex flex-col items-center gap-2">
+                <button type="button" class="clay-btn clay-btn-hover-state px-6 py-3 text-sm">
+                  Primary Action
+                </button>
+                <span class="text-[11px] font-mono text-[#00A3A0] font-semibold">Hover</span>
+              </div>
+
+              <!-- 3. Disabled State -->
+              <div class="flex flex-col items-center gap-2">
+                <button type="button" disabled class="clay-btn clay-btn-disabled px-6 py-3 text-sm">
+                  Disabled
+                </button>
+                <span class="text-[11px] font-mono text-[#8C8476]">Disabled</span>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- 4. INPUTS SECTION -->
+          <section id="inputs">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Inputs</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Pill Search Input</span>
+            </div>
+
+            <!-- Pill-shaped 3D clay search input -->
+            <div class="clay-card p-6">
+              <div class="clay-input-pill px-5 py-3.5 flex items-center gap-3">
+                <input 
+                  type="text" 
+                  placeholder="Search invoices" 
+                  aria-label="Search invoices"
+                  class="bg-transparent outline-none w-full text-sm font-medium text-[#1A1A1A] placeholder-[#9E978B]"
+                />
+                <button type="button" aria-label="Submit search" class="text-[#7F786C] hover:text-[#0E4733] transition-colors">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 5. TABS SECTION (Variant 1: Pill Group) -->
+          <section id="tabs-variant-1">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Tabs <span class="text-sm font-normal text-[#7E776A]">(Variant 1)</span></h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Pill Segmented</span>
+            </div>
+
+            <div class="clay-card p-6 flex items-center justify-center">
+              <div class="clay-tab-bar" role="tablist">
+                <button type="button" role="tab" aria-selected="true" class="clay-tab-item clay-tab-active" onclick="switchPillTab(this)">Overview</button>
+                <button type="button" role="tab" aria-selected="false" class="clay-tab-item" onclick="switchPillTab(this)">Billing</button>
+                <button type="button" role="tab" aria-selected="false" class="clay-tab-item" onclick="switchPillTab(this)">Team</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 6. ALERTS SECTION -->
+          <section id="alerts">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Alerts</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Status Banners</span>
+            </div>
+
+            <div class="space-y-4">
+              <!-- Success Alert -->
+              <div class="clay-alert clay-alert-success">
+                <div class="alert-icon-pill bg-[#C5F3E2] text-[#0E4733]">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <span>Success</span>
+              </div>
+
+              <!-- Warning Alert -->
+              <div class="clay-alert clay-alert-warning">
+                <div class="alert-icon-pill bg-[#FDEEAD] text-[#785404]">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <span>Warning</span>
+              </div>
+
+              <!-- Error Alert -->
+              <div class="clay-alert clay-alert-error">
+                <div class="alert-icon-pill bg-[#FFD6DB] text-[#8C1929]">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <span>Error</span>
+              </div>
+            </div>
+          </section>
+
+        </div>
+
+
+        <!-- =========================================================
+             RIGHT COLUMN
+             (Typography Scale, Radius, Elevation, Chips, Tabs V2, Cards)
+             ========================================================= -->
+        <div class="space-y-14">
+          
+          <!-- 1. TYPOGRAPHY SCALE SECTION -->
+          <section id="typography-scale">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Typography Scale</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Scale & Weights</span>
+            </div>
+
+            <!-- Vertical list of text samples decreasing in size -->
+            <div class="clay-card p-6 space-y-4">
+              
+              <!-- Display -->
+              <div class="flex items-baseline justify-between border-b border-[#F0ECE3] pb-3">
+                <span class="text-3xl sm:text-4xl font-extrabold font-heading text-[#111111]">Display</span>
+                <span class="text-xs font-mono font-medium text-[#8F887C]">Size 36 / 42px</span>
+              </div>
+
+              <!-- Hister -->
+              <div class="flex items-baseline justify-between border-b border-[#F0ECE3] pb-3">
+                <span class="text-2xl sm:text-3xl font-bold font-heading text-[#1A1A1A]">Hister</span>
+                <span class="text-xs font-mono font-medium text-[#8F887C]">Size 28 / 34px</span>
+              </div>
+
+              <!-- Pastin -->
+              <div class="flex items-baseline justify-between border-b border-[#F0ECE3] pb-3">
+                <span class="text-xl sm:text-2xl font-semibold text-[#222222]">Pastin</span>
+                <span class="text-xs font-mono font-medium text-[#8F887C]">Size 22 / 28px</span>
+              </div>
+
+              <!-- Medium -->
+              <div class="flex items-baseline justify-between border-b border-[#F0ECE3] pb-3">
+                <span class="text-base sm:text-lg font-medium text-[#333333]">Medium</span>
+                <span class="text-xs font-mono font-medium text-[#8F887C]">Size 16 / 22px</span>
+              </div>
+
+              <!-- Caption 1 -->
+              <div class="flex items-baseline justify-between border-b border-[#F0ECE3] pb-3">
+                <span class="text-sm font-normal text-[#4D473D]">Caption</span>
+                <span class="text-xs font-mono font-medium text-[#8F887C]">Size 13 / 18px</span>
+              </div>
+
+              <!-- Caption 2 (Smallest) -->
+              <div class="flex items-baseline justify-between">
+                <span class="text-xs font-normal text-[#6C6558]">Caption</span>
+                <span class="text-[11px] font-mono font-medium text-[#8F887C]">Size 8º / 7px</span>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- 2. RADIUS SECTION -->
+          <section id="radius">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Radius</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Corner Curvature</span>
+            </div>
+
+            <div class="clay-card p-6 flex flex-wrap items-center justify-around gap-6">
+              
+              <!-- Radius 20px -->
+              <div class="flex flex-col items-center gap-3">
+                <div class="relative w-24 h-24 clay-card flex items-center justify-center border-2 border-dashed border-[#A8E6CF]" style="border-radius: 20px;">
+                  <span class="text-xs font-mono font-bold text-[#4A443B]">20px</span>
+                  <!-- Corner Annotation Arc -->
+                  <div class="absolute top-1 left-1 w-6 h-6 border-t-2 border-l-2 border-[#124A37] rounded-tl-[16px] pointer-events-none"></div>
+                </div>
+                <div class="text-center">
+                  <div class="text-xs font-mono font-bold text-[#1A1A1A]">20px</div>
+                  <span class="text-[10px] text-[#8C8476]">Components</span>
+                </div>
+              </div>
+
+              <!-- Radius 70px (Pill/Organic squircle) -->
+              <div class="flex flex-col items-center gap-3">
+                <div class="relative w-24 h-24 clay-card flex items-center justify-center border-2 border-dashed border-[#A8E6CF]" style="border-radius: 46px;">
+                  <span class="text-xs font-mono font-bold text-[#4A443B]">70px</span>
+                  <!-- Corner Annotation Arc -->
+                  <div class="absolute top-0.5 left-0.5 w-8 h-8 border-t-2 border-l-2 border-[#124A37] rounded-tl-[32px] pointer-events-none"></div>
+                </div>
+                <div class="text-center">
+                  <div class="text-xs font-mono font-bold text-[#1A1A1A]">70px</div>
+                  <span class="text-[10px] text-[#8C8476]">Pill & Surface</span>
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- 3. ELEVATION SECTION -->
+          <section id="elevation">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Elevation</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">5 Staggered Depths</span>
+            </div>
+
+            <!-- Stack of 5 rounded rectangle cards labeled Level 1 through Level 5 -->
+            <div class="clay-card p-6">
+              <div class="space-y-4">
+                
+                <!-- Level 1 (Lightest) -->
+                <div class="elevation-level-1 bg-white rounded-2xl p-4 flex items-center justify-between border border-[#F1EEE6]">
+                  <div class="flex items-center gap-3">
+                    <span class="w-6 h-6 rounded-full bg-[#F4F1EB] text-[11px] font-bold font-mono flex items-center justify-center text-[#6A6357]">1</span>
+                    <span class="font-bold text-sm text-[#1A1A1A]">Level 1</span>
+                  </div>
+                  <span class="text-xs font-mono text-[#9C9588]">Flat / Subtle</span>
+                </div>
+
+                <!-- Level 2 -->
+                <div class="elevation-level-2 bg-white rounded-2xl p-4 flex items-center justify-between border border-[#EFECE3]">
+                  <div class="flex items-center gap-3">
+                    <span class="w-6 h-6 rounded-full bg-[#EBF6F1] text-[11px] font-bold font-mono flex items-center justify-center text-[#124A37]">2</span>
+                    <span class="font-bold text-sm text-[#1A1A1A]">Level 2</span>
+                  </div>
+                  <span class="text-xs font-mono text-[#9C9588]">Resting</span>
+                </div>
+
+                <!-- Level 3 -->
+                <div class="elevation-level-3 bg-white rounded-2xl p-4 flex items-center justify-between border border-[#ECE8DE]">
+                  <div class="flex items-center gap-3">
+                    <span class="w-6 h-6 rounded-full bg-[#D7F5E9] text-[11px] font-bold font-mono flex items-center justify-center text-[#124A37]">3</span>
+                    <span class="font-bold text-sm text-[#1A1A1A]">Level 3</span>
+                  </div>
+                  <span class="text-xs font-mono text-[#9C9588]">Raised / Card</span>
+                </div>
+
+                <!-- Level 4 -->
+                <div class="elevation-level-4 bg-white rounded-2xl p-4 flex items-center justify-between border border-[#E8E3D8]">
+                  <div class="flex items-center gap-3">
+                    <span class="w-6 h-6 rounded-full bg-[#C2F0DE] text-[11px] font-bold font-mono flex items-center justify-center text-[#124A37]">4</span>
+                    <span class="font-bold text-sm text-[#1A1A1A]">Level 4</span>
+                  </div>
+                  <span class="text-xs font-mono text-[#9C9588]">Floating / Modal</span>
+                </div>
+
+                <!-- Level 5 (Deepest) -->
+                <div class="elevation-level-5 bg-white rounded-2xl p-4 flex items-center justify-between border border-[#E4DFD2]">
+                  <div class="flex items-center gap-3">
+                    <span class="w-6 h-6 rounded-full bg-[#A8E6CF] text-[11px] font-bold font-mono flex items-center justify-center text-[#0E4733]">5</span>
+                    <span class="font-bold text-sm text-[#1A1A1A]">Level 5</span>
+                  </div>
+                  <span class="text-xs font-mono text-[#9C9588]">Max Depth</span>
+                </div>
+
+              </div>
+            </div>
+          </section>
+
+          <!-- 4. CHIPS SECTION -->
+          <section id="chips">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Chips</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Interactive Tags</span>
+            </div>
+
+            <!-- Row of small rounded pill chips: Filter, Selected, Disabled -->
+            <div class="clay-card p-6 flex flex-wrap items-center gap-4">
+              
+              <!-- Filter (Neutral with filter icon) -->
+              <div class="clay-chip clay-chip-neutral" role="button" tabindex="0">
+                <svg class="w-3.5 h-3.5 text-[#655E53]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                <span>Filter</span>
+              </div>
+
+              <!-- Selected (Mint green with checkmark icon) -->
+              <div class="clay-chip clay-chip-selected" role="button" tabindex="0">
+                <svg class="w-3.5 h-3.5 text-[#0E4733]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>Selected</span>
+              </div>
+
+              <!-- Disabled (Grayed out) -->
+              <div class="clay-chip clay-chip-disabled" aria-disabled="true">
+                <svg class="w-3.5 h-3.5 text-[#A39D91]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                </svg>
+                <span>Disabled</span>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- 5. TABS SECTION (Variant 2: Underline Style) -->
+          <section id="tabs-variant-2">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Tabs <span class="text-sm font-normal text-[#7E776A]">(Variant 2)</span></h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Underline Style</span>
+            </div>
+
+            <div class="clay-card p-6">
+              <div class="tab-underline-container" role="tablist">
+                <button type="button" role="tab" aria-selected="true" class="tab-underline-item tab-underline-active" onclick="switchUnderlineTab(this)">Overview</button>
+                <button type="button" role="tab" aria-selected="false" class="tab-underline-item" onclick="switchUnderlineTab(this)">Billing</button>
+                <button type="button" role="tab" aria-selected="false" class="tab-underline-item" onclick="switchUnderlineTab(this)">Team</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 6. CARDS SECTION -->
+          <section id="cards">
+            <div class="flex items-center justify-between mb-6">
+              <h2 class="text-xl font-bold font-heading text-[#111111]">Cards</h2>
+              <span class="text-xs font-semibold tracking-wider uppercase text-[#888173]">Stacked Depth</span>
+            </div>
+
+            <!-- Stacked set of 3 rounded white cards staggered behind each other -->
+            <div class="stacked-cards-container">
+              
+              <!-- Back Card 2 (Bottom) -->
+              <div class="stacked-card-back-2"></div>
+              
+              <!-- Back Card 1 (Middle) -->
+              <div class="stacked-card-back-1"></div>
+              
+              <!-- Front Card (Main content) -->
+              <div class="stacked-card-front p-7">
+                <div class="flex items-start justify-between gap-6">
+                  
+                  <!-- Left Text content -->
+                  <div class="flex-1">
+                    <h3 class="text-xl font-bold font-heading text-[#111111] mb-2">Title</h3>
+                    <p class="text-sm text-[#726B5F] leading-relaxed mb-5 max-w-sm">
+                      Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+                    </p>
+                    <div class="flex items-center gap-3">
+                      <!-- Small "Image" label/button -->
+                      <button type="button" class="clay-btn clay-btn-default px-4 py-1.5 text-xs font-semibold">
+                        Image
+                      </button>
+                      <span class="text-xs font-medium text-[#9C9588]">Updated 2h ago</span>
+                    </div>
+                  </div>
+
+                  <!-- Right Image Placeholder Icon (mountain/sun in rounded clay square) -->
+                  <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#F5F2EB] to-[#E9E4D8] shadow-inner border border-[#E3DDD0] flex items-center justify-center flex-shrink-0">
+                    <svg class="w-8 h-8 text-[#A39B8E]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <!-- Sun -->
+                      <circle cx="17.5" cy="7.5" r="2.5" fill="currentColor" opacity="0.8" />
+                      <!-- Mountain Peaks -->
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 18l6-7 4 5 3-3 5 5H3z" />
+                    </svg>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+        </div>
+
+      </div>
+
+      <!-- Bottom Footer / Styleguide Meta -->
+      <footer class="mt-16 pt-8 border-t border-[#EAE6DD] flex flex-wrap items-center justify-between gap-4 text-xs text-[#8C8476]">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-[#A8E6CF]"></span>
+          <span>Soft 3D Claymorphism Component Guidelines • Design Canvas</span>
+        </div>
+        <div class="font-mono">
+          <span>Canvas: #F3F1EC</span> • <span>Primary: #A8E6CF</span> • <span>Poster Radius: 28px</span>
+        </div>
+      </footer>
+
+    </div>
+  </main>
+
+  <!-- Interactive Demo Logic for Tabs & Clickable Feedback -->
+  <script>
+    // Tab switching for Pill Tabs (Variant 1)
+    function switchPillTab(element) {
+      const parent = element.parentElement;
+      parent.querySelectorAll('.clay-tab-item').forEach(tab => {
+        tab.classList.remove('clay-tab-active');
+        tab.setAttribute('aria-selected', 'false');
+      });
+      element.classList.add('clay-tab-active');
+      element.setAttribute('aria-selected', 'true');
+    }
+
+    // Tab switching for Underline Tabs (Variant 2)
+    function switchUnderlineTab(element) {
+      const parent = element.parentElement;
+      parent.querySelectorAll('.tab-underline-item').forEach(tab => {
+        tab.classList.remove('tab-underline-active');
+        tab.setAttribute('aria-selected', 'false');
+      });
+      element.classList.add('tab-underline-active');
+      element.setAttribute('aria-selected', 'true');
+    }
+
+    // Interactive copy-to-clipboard for color swatches
+    document.querySelectorAll('.squircle-blob, .clay-focus-ring-donut').forEach(blob => {
+      blob.addEventListener('click', function() {
+        const hex = this.closest('.clay-card').querySelector('.font-mono')?.textContent?.replace('#', '');
+        if (hex) {
+          navigator.clipboard?.writeText('#' + hex).catch(() => {});
+          // Simple visual bounce
+          this.style.transform = 'scale(0.92)';
+          setTimeout(() => { this.style.transform = ''; }, 150);
+        }
+      });
+    });
+  </script>
+</body>
+</html>
