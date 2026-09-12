@@ -1,11 +1,11 @@
 """Unit and Integration Tests for Error Dictionary and Diagnostic Healthcheck.
 
 Verifies:
-1. All custom exception classes documented in TROUBLESHOOTING.md exist and are importable.
+1. All custom exception classes documented in README.md exist and are importable.
 2. K8sStateCollector.check_health() safely returns diagnostic dict without unhandled exceptions.
 3. K8sCollector backward compatibility alias functions properly.
 4. opsgenome doctor CLI command executes successfully and outputs subsystem health table.
-5. TROUBLESHOOTING.md exists and contains exhaustive diagnostic references.
+5. README.md exists and contains exhaustive diagnostic references.
 """
 
 from __future__ import annotations
@@ -74,16 +74,16 @@ def test_doctor_cli_command_runner():
     assert "Kubernetes Collector" in result.output
     assert "Shell Hooks" in result.output
     assert "AI Engine" in result.output
-    assert "TROUBLESHOOTING.md" in result.output
+    assert "README.md" in result.output
 
 
 def test_troubleshooting_documentation_integrity():
-    """Verify TROUBLESHOOTING.md exists and contains all required error domains."""
+    """Verify README.md exists and contains all required error domains."""
     repo_root = Path(__file__).resolve().parent.parent.parent
-    troubleshooting_file = repo_root / "TROUBLESHOOTING.md"
-    assert troubleshooting_file.exists(), "TROUBLESHOOTING.md must exist at repo root"
+    readme_file = repo_root / "README.md"
+    assert readme_file.exists(), "README.md must exist at repo root"
 
-    content = troubleshooting_file.read_text()
+    content = readme_file.read_text()
     assert "Master Error & Exception Matrix" in content
     assert "Domain 1: Kubernetes Watcher & Cluster State Collector" in content
     assert "Domain 2: Security Boundary & Secret Redaction Guardrails" in content

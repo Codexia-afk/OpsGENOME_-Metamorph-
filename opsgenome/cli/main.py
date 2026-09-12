@@ -727,10 +727,10 @@ def cmd_doctor(namespace: str) -> None:
                 sock_diag = f"UDS active at {sock_str} (POSIX 0600 isolation)."
         except Exception:
             sock_status = f"{YELLOW}STALE SOCKET{RESET}"
-            sock_diag = f"Socket file exists but is not responding. Fix: rm -f {sock_str} (TROUBLESHOOTING.md §5.2)"
+            sock_diag = f"Socket file exists but is not responding. Fix: rm -f {sock_str} (README.md §5.2)"
     else:
         sock_status = f"{YELLOW}OFFLINE{RESET}"
-        sock_diag = f"Daemon not running. Fix: opsgenome daemon (TROUBLESHOOTING.md §5.1)"
+        sock_diag = f"Daemon not running. Fix: opsgenome daemon (README.md §5.1)"
     results.append(["IPC Socket", sock_status, sock_diag])
 
     # 2. Database & Schema Integrity
@@ -745,13 +745,13 @@ def cmd_doctor(namespace: str) -> None:
             missing = [c for c in ["ranked_hypotheses_json", "disambiguation_required"] if c not in cols]
             if missing:
                 db_status = f"{YELLOW}SCHEMA DRIFT{RESET}"
-                db_diag = f"Missing columns: {missing}. Restart daemon to auto-migrate. (TROUBLESHOOTING.md §7.2)"
+                db_diag = f"Missing columns: {missing}. Restart daemon to auto-migrate. (README.md §7.2)"
             else:
                 db_status = f"{GREEN}HEALTHY{RESET} (WAL: {journal_mode.upper()})"
                 db_diag = f"SQLite verified with WAL mode at {db.db_path}."
     except Exception as e:
         db_status = f"{RED}ERROR{RESET}"
-        db_diag = f"{e}. (TROUBLESHOOTING.md §7.1)"
+        db_diag = f"{e}. (README.md §7.1)"
     results.append(["SQLite Storage", db_status, db_diag])
 
     # 3. Kubernetes Collector
@@ -763,10 +763,10 @@ def cmd_doctor(namespace: str) -> None:
             k8s_diag = f"API server responsive; namespace '{namespace}' active."
         else:
             k8s_status = f"{YELLOW}UNREACHABLE / RBAC{RESET}"
-            k8s_diag = f"{health.get('error')}. (TROUBLESHOOTING.md §3)"
+            k8s_diag = f"{health.get('error')}. (README.md §3)"
     except Exception as e:
         k8s_status = f"{RED}ERROR{RESET}"
-        k8s_diag = f"{e}. (TROUBLESHOOTING.md §3)"
+        k8s_diag = f"{e}. (README.md §3)"
     results.append(["Kubernetes Collector", k8s_status, k8s_diag])
 
     # 4. Shell Integration Hooks
@@ -793,7 +793,7 @@ def cmd_doctor(namespace: str) -> None:
         hook_diag = "Hook script exists but ~/.zshrc unlinked. Run: opsgenome init"
     else:
         hook_status = f"{YELLOW}NOT INSTALLED / UNVERIFIED{RESET}"
-        hook_diag = "Terminal hooks not verified. Run: opsgenome init (TROUBLESHOOTING.md §8.1)"
+        hook_diag = "Terminal hooks not verified. Run: opsgenome init (README.md §8.1)"
     results.append(["Shell Hooks", hook_status, hook_diag])
 
     # 5. AI Reasoning & Grounding
@@ -803,11 +803,11 @@ def cmd_doctor(namespace: str) -> None:
         ai_diag = "Anthropic API key set; multi-candidate semantic disambiguation enabled."
     else:
         ai_status = f"{CYAN}OFFLINE HEURISTIC{RESET}"
-        ai_diag = "Deterministic rule engine active with honest fallback. (TROUBLESHOOTING.md §6.1)"
+        ai_diag = "Deterministic rule engine active with honest fallback. (README.md §6.1)"
     results.append(["AI Engine", ai_status, ai_diag])
 
     print(tabulate(results, headers=["Subsystem", "Health Status", "Diagnostic Details / Resolution"], tablefmt="fancy_grid"))
-    print(f"\n{BOLD}{GREEN}💡 Diagnostic Guide:{RESET} For step-by-step root cause analysis and resolution commands, see {CYAN}TROUBLESHOOTING.md{RESET}.\n")
+    print(f"\n{BOLD}{GREEN}💡 Diagnostic Guide:{RESET} For step-by-step root cause analysis and resolution commands, see {CYAN}README.md §Troubleshooting & Error Dictionary{RESET}.\n")
 
 
 if __name__ == "__main__":
