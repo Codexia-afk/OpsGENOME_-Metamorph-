@@ -797,8 +797,12 @@ def cmd_doctor(namespace: str) -> None:
     results.append(["Shell Hooks", hook_status, hook_diag])
 
     # 5. AI Reasoning & Grounding
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-    if has_key:
+    has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
+    has_claude = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if has_gemini:
+        ai_status = f"{GREEN}GEMINI ONLINE{RESET}"
+        ai_diag = "Google Gemini API key set; multimodal semantic reasoning active."
+    elif has_claude:
         ai_status = f"{GREEN}CLAUDE ONLINE{RESET}"
         ai_diag = "Anthropic API key set; multi-candidate semantic disambiguation enabled."
     else:
@@ -810,5 +814,103 @@ def cmd_doctor(namespace: str) -> None:
     print(f"\n{BOLD}{GREEN}💡 Diagnostic Guide:{RESET} For step-by-step root cause analysis and resolution commands, see {CYAN}README.md §Troubleshooting & Error Dictionary{RESET}.\n")
 
 
+@cli.command("fix")
+@click.argument("target", required=False, default=None)
+@click.option("--ai", default="auto", type=click.Choice(["auto", "gemini", "claude", "offline"], case_sensitive=False), help="AI reasoning engine provider.")
+@click.option("--model", default=None, help="Model override (e.g. gemini-1.5-flash, gemini-2.0-flash, claude-3-5-sonnet-20241022).")
+@click.option("--auto-approve", "-y", is_flag=True, default=False, help="Auto-apply patch without interactive confirmation prompt.")
+@click.option("--verify/--no-verify", default=True, help="Run closed-loop verification after applying patch.")
+def cmd_fix(target: str | None, ai: str, model: str | None, auto_approve: bool, verify: bool) -> None:
+    """Autonomous AI Code & Incident Fixer with Closed-Loop Verification.
+
+    Captures execution failure tracebacks, diagnoses root cause using Google Gemini
+    (or Claude / offline heuristics), generates a unified diff, patches the file
+    safely with a .bak backup, and re-executes to verify live system recovery.
+    """
+    from opsgenome.ai.code_fixer import CodeFixEngine
+    from opsgenome.ai.engine import AIReasoningEngine
+
+    db = DatabaseManager()
+    ai_engine = AIReasoningEngine(provider=ai, model=model)
+    fixer = CodeFixEngine(ai_engine=ai_engine, db=db)
+
+    print(f"\n{BOLD}{CYAN}⚡ OpsGenome AI Autonomous Incident Fixer{RESET}")
+    print(f"{DIM}AI Provider: {ai_engine.provider.upper()} ({ai_engine.model}){RESET}\n")
+
+    try:
+        failure = fixer.capture_failure(target)
+    except Exception as err:
+        print(f"{RED}Error capturing failure context:{RESET} {err}")
+        sys.exit(1)
+
+    print(f"• {BOLD}Target Script / File:{RESET} {failure.target_file}")
+    print(f"• {BOLD}Failed Command:{RESET} {failure.command} (Exit Code: {RED}{failure.exit_code}{RESET})")
+    
+    try:
+        fix_result = fixer.generate_fix(failure)
+    except Exception as err:
+        print(f"{RED}Diagnosis failed:{RESET} {err}")
+        sys.exit(1)
+
+    print(f"• {BOLD}Symptom:{RESET} {YELLOW}{fix_result.symptom}{RESET}")
+    print(f"• {BOLD}Root Cause:{RESET} {fix_result.root_cause}")
+    if fix_result.explanation:
+        print(f"• {BOLD}Analysis:{RESET} {fix_result.explanation}")
+
+    if not fix_result.diff.strip():
+        print(f"\n{YELLOW}No code modifications generated. Script may already be up to date or failure is unhandled.{RESET}\n")
+        return
+
+    print(f"\n{BOLD}{CYAN}Proposed Remediation Patch:{RESET}")
+    print("=" * 60)
+    for line in fix_result.diff.splitlines():
+        if line.startswith("---") or line.startswith("+++"):
+            print(f"{BOLD}{line}{RESET}")
+        elif line.startswith("@@"):
+            print(f"{CYAN}{line}{RESET}")
+        elif line.startswith("+"):
+            print(f"{GREEN}{line}{RESET}")
+        elif line.startswith("-"):
+            print(f"{RED}{line}{RESET}")
+        else:
+            print(line)
+    print("=" * 60)
+
+    confirmed = auto_approve
+    if not auto_approve:
+        target_name = Path(fix_result.target_file).name
+        confirmed = click.confirm(f"\nApply this remediation patch to {target_name}?", default=True)
+
+    if not confirmed:
+        print(f"\n{YELLOW}Remediation cancelled by user. Target unchanged.{RESET}\n")
+        return
+
+    backup_path = fixer.apply_patch(fix_result)
+    print(f"\n{GREEN}✔ Patch applied successfully.{RESET}")
+    print(f"  {DIM}Reversible backup created: {backup_path}{RESET}")
+
+    if verify:
+        print(f"\n{CYAN}🔄 Running Closed-Loop Verification:{RESET}")
+        print(f"  Executing: {BOLD}{fix_result.command}{RESET}")
+        retcode, stdout, stderr = fixer.verify_remediation(fix_result.command)
+        if retcode == 0:
+            print(f"\n{BOLD}{GREEN}✔ VERIFICATION PASSED (Exit Code 0):{RESET}")
+            if stdout.strip():
+                print(f"{DIM}{stdout.strip()}{RESET}")
+            print(f"\n{GREEN}Target restored to healthy baseline.{RESET}\n")
+        else:
+            print(f"\n{BOLD}{RED}✘ VERIFICATION FAILED (Exit Code {retcode}):{RESET}")
+            if stderr.strip():
+                print(f"{RED}{stderr.strip()}{RESET}")
+            if click.confirm("\nVerification failed. Rollback changes to original?", default=True):
+                fixer.rollback(fix_result)
+                print(f"{YELLOW}Rollback complete. Original state restored.{RESET}\n")
+            sys.exit(1)
+
+
+cli.add_command(cmd_fix, name="auto-fix")
+
+
 if __name__ == "__main__":
     cli()
+

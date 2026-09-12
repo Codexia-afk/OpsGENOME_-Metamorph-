@@ -2,7 +2,8 @@
 
 > **"Production systems remember what happened. OpsGenome remembers why the engineer fixed it. AI proposes; deterministic evidence verifies."**
 
-[![Tests](https://img.shields.io/badge/tests-69%20passed-success)](opsgenome/tests/)
+[![Tests](https://img.shields.io/badge/tests-75%20passed-success)](opsgenome/tests/)
+[![AI Providers](https://img.shields.io/badge/AI-Google%20Gemini%20%7C%20Claude%20%7C%20Offline-blueviolet)](opsgenome/ai/)
 [![Security](https://img.shields.io/badge/security-fail--closed%20boundary-blue)](SECURITY.md)
 [![Recurrence SLA](https://img.shields.io/badge/intake%20match-0.25ms-brightgreen)](README.md#benchmarks--performance-sla)
 [![Core Loop](https://img.shields.io/badge/core%20loop-35.2ms-emerald)](README.md#benchmarks--performance-sla)
@@ -241,6 +242,81 @@ Look the judge in the eye and deliver the closing thesis:
 
 ---
 
+## ⚡ Autonomous AI Auto-Fix & Closed-Loop Code Repair
+
+In addition to infrastructure incidents, OpsGenome provides an **autonomous code & incident remediation engine** powered by **Google Gemini** (1.5 Flash / 2.0 Flash / 1.5 Pro), **Anthropic Claude**, or **offline deterministic heuristics**.
+
+Unlike conventional code generation tools that dump untested snippets into chat, OpsGenome operates directly in the developer/SRE terminal with a **closed-loop verification guarantee**:
+
+```mermaid
+flowchart LR
+    A["1. Terminal Crash<br/>(Exit Code != 0)"] --> B["2. Redaction Guard<br/>(SecretRedactor)"]
+    B --> C["3. Google Gemini AI<br/>(Diagnoses & Patches)"]
+    C --> D["4. Safe Patching<br/>(Creates .bak backup)"]
+    D --> E["5. Closed-Loop Verification<br/>(Re-executes in runtime)"]
+    E --> F["✔ Verified Healthy (0)<br/>or ✘ Auto-Rollback"]
+```
+
+### 🎯 Live Terminal Demo: Broken Fibonacci Auto-Fix
+
+OpsGenome includes a live demonstration script ([`demo/fibonacci_broken.py`](file:///Users/srinjoypramanick/OPsGenome/demo/fibonacci_broken.py)) containing an infinite recursion bug with missing base cases:
+
+```bash
+# 1. Run the broken script in your terminal (triggers RecursionError):
+python3 demo/fibonacci_broken.py
+
+# 2. Invoke OpsGenome Auto-Fix with Google Gemini:
+opsgenome fix demo/fibonacci_broken.py --ai gemini
+
+# Or run with zero-touch autonomous approval:
+opsgenome fix demo/fibonacci_broken.py --auto-approve
+```
+
+**Terminal Experience:**
+```text
+⚡ OpsGenome AI Autonomous Incident Fixer
+AI Provider: GEMINI (gemini-1.5-flash)
+
+• Target Script / File: demo/fibonacci_broken.py
+• Failed Command: python3 demo/fibonacci_broken.py (Exit Code: 1)
+• Symptom: RecursionError: maximum recursion depth exceeded in comparison
+• Root Cause: Missing recursive base termination cases (n <= 0, n == 1) in `fib()` causing infinite stack growth.
+• Analysis: Injected base cases returning 0 when n <= 0 and 1 when n == 1 to guarantee termination.
+
+Proposed Remediation Patch:
+============================================================
+--- a/fibonacci_broken.py
++++ b/fibonacci_broken.py
+@@ -8,6 +8,10 @@
+ def fib(n):
++    if n <= 0:
++        return 0
++    if n == 1:
++        return 1
+     return fib(n - 1) + fib(n - 2)
+============================================================
+
+Apply this remediation patch to fibonacci_broken.py? [Y/n]: y
+✔ Patch applied successfully.
+  Reversible backup created: demo/fibonacci_broken.py.bak
+
+🔄 Running Closed-Loop Verification:
+  Executing: python3 demo/fibonacci_broken.py
+
+✔ VERIFICATION PASSED (Exit Code 0):
+Generating Fibonacci sequence for n=0..6:
+Fibonacci Series: [0, 1, 1, 2, 3, 5, 8]
+
+Target restored to healthy baseline.
+```
+
+### 🔒 Safety & Reversibility Invariants
+- **Automatic Backups**: A reversible `.bak` copy is always generated before modifying any file on disk.
+- **Fail-Closed Redaction**: Any secrets, credentials, or tokens in source code or tracebacks are stripped by `SecretRedactor` before transmission to Gemini or Claude.
+- **Closed-Loop Verification**: If the re-executed command fails to return exit code `0`, OpsGenome alerts the operator and offers immediate one-click rollback to the original state.
+
+---
+
 ## 🎯 Master Judge Technical Q&A Matrix
 
 | Judge Question | Winning Technical Response |
@@ -357,7 +433,7 @@ Open **[http://localhost:3000](http://localhost:3000)** to access the console.
 ```bash
 python3 -m pytest -v
 ```
-*69 passing unit, security boundary, grounding, cross-project memory, and live Kubernetes integration tests (0 failures, 0 regressions).*
+*75 passing unit, security boundary, grounding, cross-project memory, Gemini AI reasoning, and live Kubernetes integration tests (0 failures, 0 regressions).*
 
 ---
 
