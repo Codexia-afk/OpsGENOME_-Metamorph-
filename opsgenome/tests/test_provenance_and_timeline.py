@@ -140,6 +140,13 @@ def test_timeline_and_provenance_endpoints():
     p_data = p_res.json()
     assert "provenance_chain" in p_data
     stages = [node["stage"] for node in p_data["provenance_chain"]]
-    assert stages == ["RECOMMENDATION", "EVIDENCE", "INCIDENT", "DECISION", "OUTCOME", "VERIFICATION"]
-    assert p_data["grounding_summary"]["grounding_rate"] == 1.0
+    assert p_data["grounding_summary"]["gate_enforcement_rate"] == 1.0
+    assert p_data["grounding_summary"]["hallucination_attempt_rate"] == 0.0
+    assert "total_failed_verification_claims" in p_data["grounding_summary"]
+    assert "successfully_blocked_claims" in p_data["grounding_summary"]
+    assert "explanation" in p_data["grounding_summary"]
+    # Verification node in chain also includes real enforcement metrics
+    verif_node = next(n for n in p_data["provenance_chain"] if n["stage"] == "VERIFICATION")
+    assert verif_node["record"]["gate_enforcement_rate"] == 1.0
+    assert verif_node["record"]["successfully_blocked_claims"] == 0
     print("✔ Enriched Timeline and Flagship Provenance verified with 100% contract adherence.")

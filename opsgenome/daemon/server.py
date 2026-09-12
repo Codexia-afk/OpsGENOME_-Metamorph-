@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from opsgenome.ai.grounding import EvidenceGroundingValidator
 from opsgenome.ai.runbook_generator import RunbookGenerator
 from opsgenome.daemon.anomaly_detector import CommandBurstAnomalyDetector
 from opsgenome.prevention.bus_factor import BusFactorAnalyzer
@@ -30,6 +31,7 @@ from opsgenome.storage.db import DatabaseManager
 from opsgenome.storage.graph import IntelligenceGraphBuilder
 from opsgenome.storage.models import (
     CapturedEvent,
+    Evidence,
     Incident,
     IncidentStatus,
     StateSnapshot,
@@ -665,6 +667,51 @@ def create_app(db: DatabaseManager | None = None) -> FastAPI:
             }
         })
 
+        # Dynamic Evidence Grounding Pipeline Evaluation
+        claims: list[dict[str, Any]] = []
+        if matching_runbook and matching_runbook.steps:
+            for step in matching_runbook.steps:
+                claims.append({
+                    "claim": step.title or step.description or step.command,
+                    "evidence_id": matching_runbook.evidence_citations[0] if matching_runbook.evidence_citations else (evidence_items[0].id if evidence_items else None),
+                })
+        if active_chain and active_chain.evidence_items:
+            for ev_item in active_chain.evidence_items:
+                claims.append({
+                    "claim": ev_item.summary,
+                    "evidence_id": ev_item.id,
+                })
+        elif evidence_items:
+            for ev_item in evidence_items:
+                claims.append({
+                    "claim": ev_item.summary,
+                    "evidence_id": ev_item.id,
+                })
+
+        available_evidence: list[Evidence] = []
+        if evidence_items:
+            available_evidence = list(evidence_items)
+        elif ev_records:
+            available_evidence = [
+                Evidence(
+                    id=rec["id"],
+                    incident_id=incident_id,
+                    evidence_type=rec.get("type", "terminal_observation"),
+                    summary=rec.get("summary", ""),
+                    verified=rec.get("verified", True),
+                )
+                for rec in ev_records
+            ]
+
+        if not claims and available_evidence:
+            claims = [{"claim": ev.summary, "evidence_id": ev.id} for ev in available_evidence]
+
+        grounding_report = EvidenceGroundingValidator.validate_grounding(
+            claims=claims,
+            available_evidence=available_evidence,
+            incident_id=incident_id,
+        )
+
         # 6. Verification Node
         nodes.append({
             "step": 6,
@@ -675,7 +722,10 @@ def create_app(db: DatabaseManager | None = None) -> FastAPI:
             "status": "confirmed",
             "record": {
                 "verified": True,
-                "grounding_rate": 1.0,
+                "gate_enforcement_rate": grounding_report.gate_enforcement_rate,
+                "hallucination_attempt_rate": grounding_report.hallucination_attempt_rate,
+                "total_failed_verification_claims": grounding_report.total_failed_verification_claims,
+                "successfully_blocked_claims": grounding_report.successfully_blocked_claims,
                 "verification_method": "Deterministic Before/After Health Delta",
             }
         })
@@ -684,10 +734,19 @@ def create_app(db: DatabaseManager | None = None) -> FastAPI:
             "incident_id": incident_id,
             "provenance_chain": nodes,
             "grounding_summary": {
-                "grounding_rate": 1.0,
-                "status": "GROUNDED_AND_AUDITABLE",
-                "total_claims": len(ev_records) + 2,
-                "supported_claims": len(ev_records) + 2,
+                "gate_enforcement_rate": grounding_report.gate_enforcement_rate,
+                "hallucination_attempt_rate": grounding_report.hallucination_attempt_rate,
+                "total_failed_verification_claims": grounding_report.total_failed_verification_claims,
+                "successfully_blocked_claims": grounding_report.successfully_blocked_claims,
+                "status": "GROUNDED_AND_AUDITABLE" if grounding_report.gate_enforcement_rate == 1.0 else "UNVERIFIED_LEAK_DETECTED",
+                "total_claims": grounding_report.claims_generated,
+                "supported_claims": grounding_report.claims_supported,
+                "explanation": (
+                    f"{grounding_report.total_failed_verification_claims} ungrounded claims proposed by model; "
+                    f"{grounding_report.successfully_blocked_claims} blocked by deterministic gate before publication"
+                    if grounding_report.total_failed_verification_claims > 0
+                    else f"{grounding_report.claims_supported}/{grounding_report.claims_generated} claims verified; 0 ungrounded claims reached publication"
+                ),
             }
         }
 

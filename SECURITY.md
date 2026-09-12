@@ -8,13 +8,13 @@ In modern site reliability engineering and DevOps, terminal capture during incid
 If a capture system writes raw terminal commands to disk or ships unredacted payloads to a cloud LLM, it becomes a high-severity security vulnerability.
 
 **OpsGenome's Core Security Guarantee:**
-> **Fail-closed, client-side redaction boundary. Zero unredacted secrets ever touch disk, local SQLite storage, or LLM network payloads.**
+> **Commands are redacted in-process on the client before transmission. The daemon communicates over a Unix domain socket restricted to the local user; no command data is ever exposed on a TCP port or network-visible loopback address.**
 
 ---
 
 ## 1. Multi-Layer Redaction Pipeline
 
-OpsGenome enforces an in-memory redaction pipeline before any event can be buffered, stored, or processed:
+OpsGenome enforces an in-process client-side redaction pipeline before any event can be serialized, transmitted over the socket, stored, or processed:
 
 ### Layer 1: Deterministic Pattern Scanning (Regex)
 Pre-compiled regular expressions instantly scrub high-entropy key formats with zero overhead (<0.01ms):
@@ -50,21 +50,22 @@ To prevent prompt injection attacks originating from compromised pod logs or mal
 
 ---
 
-## 2. Field-Level Authenticated Encryption (Fernet: AES-128-CBC + HMAC-SHA256)
+## 2. Field-Level Authenticated Encryption & Cryptographic Isolation
 
-Sensitive operational fields (such as raw command strings) are cryptographically protected before persistence:
+Sensitive operational fields and cryptographic keys are isolated client-side before persistence:
 - **Algorithm:** Field-Level Authenticated Symmetric Encryption using Fernet (AES-128-CBC for confidentiality + HMAC-SHA256 for data authenticity).
-- **Key Derivation:** 256-bit key derived via PBKDF2-HMAC-SHA256 (100,000 iterations) salted with local machine ID.
-- **Database Storage:** Relational metadata is indexed in SQLite with strict POSIX `0600` file permissions; sensitive command strings are stored as encrypted blobs.
-- **Tamper Resistance:** HMAC-SHA256 signature verification guarantees recorded command strings cannot be forged or tampered with out-of-band.
+- **Key Derivation:** 256-bit symmetric key generated via cryptography Fernet (`os.urandom`) and stored with POSIX `0600` file permissions in `~/.opsgenome/master.key`, or derived via SHA-256 for passphrase mode.
+- **Database Storage:** Relational incident metadata and sanitized command strings are stored in local SQLite (WAL mode) with client-side secret redaction enforced before persistence; a Fernet authenticated encryption utility is included for field-level blob security.
+- **Tamper Resistance:** HMAC-SHA256 verification guarantees that ciphertext payloads encrypted via the crypto utility cannot be forged or modified out-of-band.
 
 ---
 
-## 3. Evidence Grounding & Zero Hallucinations Policy
+## 3. Evidence Grounding & Verification Gate Policy
 
-1. **AI Proposes, Evidence Verifies:** LLM models are never permitted to declare an incident resolved or invent provenance scores.
-2. **Deterministic ID Cross-Referencing:** Every event ID cited in an assembled causal chain or Why/Why Not decision must exist in the cryptographic database record. If an LLM response cites a non-existent ID, it is rejected.
-3. **State Transition Verification:** OpsGenome checks actual infrastructure diffs (e.g. Kubernetes replica health, connection pool capacity) rather than trusting shell exit code `0` alone.
+We do not trust the model's claims by default — every claim is verified against operational evidence, and claims that fail verification are caught and blocked before reaching the user:
+1. **Dual Metric Honesty:** We measure both the *Model Hallucination Attempt Rate* (claims proposed by the model that failed grounding verification before any filtering, ~10.8% typical, 30% under adversarial stress) and the *Gate Enforcement Rate* (measured as $\text{successfully\_blocked} / \text{total\_failed}$; empirically 100% [3/3 blocked] in our adversarial test suite, actively tracking potential gate leaks per run).
+2. **Deterministic ID Cross-Referencing:** Every event ID cited in an assembled causal chain or Why/Why Not decision must exist in the database record. If an LLM response cites a non-existent ID, it is blocked by the gate.
+3. **Kubernetes Infrastructure State Transition Verification:** OpsGenome integrates a live Kubernetes State Collector (`opsgenome/watcher/k8s.py`) using the official Kubernetes API client. It directly inspects pod phases, container readiness (`0/1`), container restart counts, failure reasons (`CrashLoopBackOff`, `Error`, `OOMKilled`), and ConfigMap `resourceVersion` and SHA-256 checksums. If a command returns exit code `0` but pods remain degraded or ConfigMaps do not transition to the repaired version, the action is categorized as a Known Dead End rather than a fix. Collector connections fail visibly with specific typed exceptions (`K8sClusterUnreachableError`, `K8sNamespaceNotFoundError`, `K8sPermissionDeniedError`), never silently returning synthetic data. Shell hooks capture command strings, exit status, duration, and cwd; terminal stdout/stderr stream capture via a dedicated PTY wrapper is documented in `ROADMAP.md` as planned work.
 
 ---
 

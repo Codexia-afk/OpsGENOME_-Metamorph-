@@ -68,14 +68,14 @@ class SecretRedactor:
         # Passwords in Database connection strings
         (
             "URI_PASSWORD",
-            re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]+://[^:]+:)([^@]+)(@)"),
+            re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]+://[^:]+:)(.+)(@(?=[^@/\s]+))"),
             r"\1[REDACTED_DB_PASSWORD]\3",
         ),
-        # Passwords in common CLI flags (--password, -p, --passwd, --secret, --token, --api-key)
+        # Passwords in common CLI flags (--password, -p, --passwd, --secret, --secret-key, --token, --api-key)
         (
             "CLI_PASSWORD_FLAG",
             re.compile(
-                r"(?i)(--?(?:password|passwd|secret|api[-_]?key|token|auth[-_]?token)[=\s]+)(['\"]?(?!\[REDACTED_)[^\s'\"]{4,}['\"]?)"
+                r"(?i)(--?(?:password|passwd|secret[-_]?key|secret|api[-_]?key|token|auth[-_]?token)[=\s]+)(['\"]?(?!\[REDACTED_)[^\s'\"]{4,}['\"]?)"
             ),
             r"\1[REDACTED_PASSWORD]",
         ),

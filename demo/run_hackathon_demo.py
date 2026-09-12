@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import os
+import subprocess
 import sys
 import time
 from tabulate import tabulate
@@ -32,6 +33,7 @@ from opsgenome.storage.models import (
     StateSnapshot,
     TriggerSource,
 )
+from opsgenome.watcher.k8s import K8sStateCollector
 
 # Colors
 CYAN = "\033[96m"
@@ -135,18 +137,82 @@ def run_demo():
         else:
             print(f"  {DIM}[Captured #{idx+1:02d}]{RESET} $ {red_cmd[:60]}")
 
-    # Snapshot before / after fix
-    snap1 = StateSnapshot(
-        id="snap-1",
-        incident_id=inc1.id,
-        event_id=events1[12].id,  # rollout undo
-        resource_type="k8s_pod",
-        before_state={"status": "CrashLoopBackOff", "ready": "0/1"},
-        after_state={"status": "Running", "ready": "1/1"},
-        diff_summary="State transition from CrashLoopBackOff to Running 1/1",
-        is_healthy=True,
-        status_summary="Running 1/1",
-    )
+    # Real Kubernetes State Collector (Live cluster state snapshot & diff)
+    try:
+        k8s_collector = K8sStateCollector(namespace="payments")
+        k8s_collector.connect()
+
+        # 1. Induce real fault state in live cluster if healthy
+        raw_check, is_healthy_check, _ = k8s_collector.capture_raw_state()
+        if is_healthy_check:
+            subprocess.run([
+                "kubectl", "-n", "payments", "patch", "configmap", "payments-config",
+                "-p", '{"data":{"DB_TIMEOUT":"invalid_syntax_error"}}'
+            ], check=True, capture_output=True)
+            subprocess.run([
+                "kubectl", "-n", "payments", "delete", "pod", "-l", "app=payments-service", "--wait=false"
+            ], check=True, capture_output=True)
+            for _ in range(20):
+                time.sleep(1)
+                _, is_h, _ = k8s_collector.capture_raw_state()
+                if not is_h:
+                    break
+
+        # 2. Capture REAL LIVE BEFORE snapshot from the active cluster
+        before_snap = k8s_collector.capture_snapshot(
+            incident_id=inc1.id,
+            event_id=events1[11].id,
+        )
+
+        # 3. Apply real remediation to the live cluster (remediation command: fix config)
+        subprocess.run([
+            "kubectl", "-n", "payments", "patch", "configmap", "payments-config",
+            "-p", '{"data":{"DB_TIMEOUT":"30s"}}'
+        ], check=True, capture_output=True)
+        subprocess.run([
+            "kubectl", "-n", "payments", "delete", "pod", "-l", "app=payments-service", "--wait=false"
+        ], check=True, capture_output=True)
+
+        # 4. Wait for real pod recovery in live cluster
+        for _ in range(25):
+            time.sleep(1)
+            _, is_h, _ = k8s_collector.capture_raw_state()
+            if is_h:
+                break
+
+        # 5. Capture REAL LIVE AFTER snapshot from the active cluster
+        after_snap = k8s_collector.capture_snapshot(
+            incident_id=inc1.id,
+            event_id=events1[12].id,
+        )
+
+        # 6. Compute real state transition snapshot
+        snap1 = k8s_collector.create_transition_snapshot(
+            incident_id=inc1.id,
+            before=before_snap,
+            after=after_snap,
+            event_id=events1[12].id,
+        )
+
+        b_rv = before_snap.raw_state.get("configmaps", {}).get("payments-config", {}).get("resource_version", "--")
+        a_rv = after_snap.raw_state.get("configmaps", {}).get("payments-config", {}).get("resource_version", "--")
+        print(f"  {GREEN}✔ [REAL LIVE K8S COLLECTOR]{RESET} Target namespace '{k8s_collector.namespace}':")
+        print(f"    • BEFORE [{before_snap.timestamp.strftime('%H:%M:%S')}]: {before_snap.status_summary} (ConfigMap RV: {b_rv})")
+        print(f"    • AFTER  [{after_snap.timestamp.strftime('%H:%M:%S')}]: {after_snap.status_summary} (ConfigMap RV: {a_rv})")
+        print(f"    • DIFF: {snap1.diff_summary}")
+    except Exception as k8s_err:
+        print(f"  {YELLOW}⚠ [K8S CLUSTER OFFLINE]{RESET} {k8s_err}. Using recorded demo transition snapshot.")
+        snap1 = StateSnapshot(
+            id="snap-1",
+            incident_id=inc1.id,
+            event_id=events1[12].id,  # rollout undo
+            resource_type="k8s_pod",
+            before_state={"status": "CrashLoopBackOff", "ready": "0/1", "summary": "CrashLoopBackOff 0/1"},
+            after_state={"status": "Running", "ready": "1/1", "summary": "Running 1/1"},
+            diff_summary="State transition from CrashLoopBackOff to Running 1/1",
+            is_healthy=True,
+            status_summary="Running 1/1",
+        )
     db.save_state_snapshot(snap1)
 
     # -------------------------------------------------------------------------

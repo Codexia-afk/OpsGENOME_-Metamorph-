@@ -622,7 +622,7 @@ function OverviewView({
             {incidentsList.length} Incidents
           </div>
           <p className="text-[11px] text-[#726B5F]">
-            100% captured with causal state diffs
+            Recorded with deterministic causal timelines
           </p>
         </div>
 
@@ -645,10 +645,10 @@ function OverviewView({
             <span>🛡️</span>
           </div>
           <div className="text-2xl font-bold font-heading text-[#0E4733]">
-            100% Grounded
+            100% Published Grounded
           </div>
           <p className="text-[11px] text-[#2D6A4F]">
-            Zero hallucinations • Non-zero exit code fallacy rejected
+            Ungrounded claims rejected • Exit code 0 verified
           </p>
         </div>
 
@@ -1599,9 +1599,9 @@ function InvestigationView({
                   </div>
 
                   <div className="space-y-1 text-xs">
-                    <span className="text-[#8C8476] font-mono text-[10px]">TERMINAL SNIPPET:</span>
+                    <span className="text-[#8C8476] font-mono text-[10px]">OUTPUT STREAM (PTY CAPTURE ROADMAP):</span>
                     <div className="clay-terminal-block p-2.5 font-mono text-[11px] text-[#E2E8F0] max-h-28 overflow-y-auto">
-                      <pre>{activeEvent.stdout_snippet || activeEvent.stderr_snippet || "No terminal output stream captured."}</pre>
+                      <pre>{activeEvent.stdout_snippet || activeEvent.stderr_snippet || "Passive shell capture active (command, exit status, duration). PTY stdout wrapper on roadmap."}</pre>
                     </div>
                   </div>
 
@@ -1631,7 +1631,7 @@ function InvestigationView({
 
                   <div className="space-y-2 text-xs">
                     <p className="text-xs text-[#5A5348]">
-                      Verifies concrete state mutations rather than trusting shell exit codes:
+                      Verifies concrete Kubernetes resource mutations rather than trusting shell exit codes:
                     </p>
 
                     <div className="p-2.5 rounded-xl bg-[#FAF8F4] border border-[#EAE6DD] font-mono text-xs space-y-1">
@@ -1649,6 +1649,15 @@ function InvestigationView({
                         After: {matchingSnapshot?.after_state?.summary || "Healthy State"}
                       </div>
                     </div>
+
+                    {matchingSnapshot?.raw_state?.diff?.configmap_changes?.length > 0 && (
+                      <div className="p-2 rounded-lg bg-sky-50 border border-sky-200 text-sky-800 font-mono text-[10px] space-y-0.5">
+                        <div className="font-bold text-[10px] uppercase text-sky-900">K8s Resource Diffs Detected:</div>
+                        {matchingSnapshot.raw_state.diff.configmap_changes.map((cm, ci) => (
+                          <div key={ci}>ConfigMap <strong>{cm.name}</strong>: v{cm.before_version} → v{cm.after_version}</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1801,7 +1810,7 @@ function InvestigationView({
                 <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                   <div className="text-[10px] font-mono uppercase text-slate-400 font-bold">Claim Grounding</div>
                   <div className="text-base font-bold font-mono text-emerald-700 mt-0.5">
-                    100% Accepted
+                    100% Published Grounded
                   </div>
                 </div>
               </div>
@@ -1811,7 +1820,7 @@ function InvestigationView({
                 <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider font-bold">
                   <span className="text-slate-500">Recommended Remediation</span>
                   <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-semibold">
-                    ✔ State Delta Verified
+                    ✔ Verified Fix Step
                   </span>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-900 text-slate-100 font-mono text-xs flex items-center justify-between gap-3 overflow-x-auto">
@@ -2207,7 +2216,7 @@ function WarRoomView({ activeData, onResolve, onInjectCommand, onOpenRunbook }) 
                   </div>
                   {ev.stdout_snippet && (
                     <div className="text-[11px] font-mono text-[#5A5348] truncate">
-                      stdout: {ev.stdout_snippet}
+                      evidence: {ev.stdout_snippet}
                     </div>
                   )}
                 </div>
@@ -2363,7 +2372,7 @@ function CausalGraphView({ incidentsList, selectedId, onSelectId, detail }) {
 
             {selectedNode.metadata?.stdout_snippet && (
               <div>
-                <span className="text-[#8C8476] font-mono text-[10px] uppercase">Stdout Snippet:</span>
+                <span className="text-[#8C8476] font-mono text-[10px] uppercase">Telemetry / Output Evidence:</span>
                 <div className="clay-terminal-block p-2 mt-1 text-[11px]">
                   {selectedNode.metadata.stdout_snippet}
                 </div>
@@ -2580,7 +2589,7 @@ function EvidenceProvenanceModal({ data, onClose }) {
   if (!data) return null;
 
   const chain = data.provenance_chain || [];
-  const grounding = data.grounding_summary || { grounding_rate: 1.0, status: "GROUNDED_AND_AUDITABLE" };
+  const grounding = data.grounding_summary || { gate_enforcement_rate: 1.0, hallucination_attempt_rate: 0.0, status: "GROUNDED_AND_AUDITABLE" };
 
   const stageIcons = {
     RECOMMENDATION: "💡",
@@ -2631,9 +2640,15 @@ function EvidenceProvenanceModal({ data, onClose }) {
         <div className="my-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-6">
             <div>
-              <span className="text-[10px] font-mono uppercase text-slate-400 block font-semibold">Evidence Grounding Rate</span>
-              <span className="font-mono font-bold text-emerald-600 text-sm">
-                {Math.round((grounding.grounding_rate || 1.0) * 100)}% (Audited & Supported)
+              <span className="text-[10px] font-mono uppercase text-slate-400 block font-semibold">AI Verification Gate</span>
+              <span className="font-mono font-bold text-emerald-600 text-sm block">
+                {((grounding.gate_enforcement_rate ?? 1.0) * 100).toFixed(1)}% ({grounding.successfully_blocked_claims ?? (grounding.total_failed_verification_claims ?? 0)}/{grounding.total_failed_verification_claims ?? 0} blocked)
+              </span>
+              <span className="text-[10px] font-mono text-slate-500 block">
+                Hallucination Attempt Rate: {((grounding.hallucination_attempt_rate ?? 0.0) * 100).toFixed(1)}% ({grounding.total_failed_verification_claims ?? 0}/{grounding.total_claims ?? 0} ungrounded)
+              </span>
+              <span className="text-[10px] font-mono text-slate-600 block mt-0.5">
+                {grounding.explanation || `${grounding.total_failed_verification_claims ?? 0} ungrounded claims proposed by model; ${grounding.successfully_blocked_claims ?? 0} blocked by deterministic gate before publication`}
               </span>
             </div>
             <div className="border-l border-slate-200 pl-4">

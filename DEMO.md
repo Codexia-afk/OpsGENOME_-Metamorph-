@@ -39,7 +39,7 @@
 * **Speaker:**
   > *"First rule of enterprise operations: you cannot leak production credentials. Generic LLM tools naively feed your bash history to third-party APIs. That is a non-starter.*
   >
-  > *OpsGenome enforces an architectural, fail-closed security boundary. Before any command, stdout, stderr, or state snapshot touches SQLite or the reasoning engine, it passes through our multi-pattern regex suite, high-entropy Shannon scanner, and strict EventSanitizer.*
+  > *OpsGenome enforces an architectural, fail-closed security boundary. Before any command or telemetry payload touches SQLite or the reasoning engine, it passes through our multi-pattern regex suite, high-entropy Shannon scanner, and strict EventSanitizer.*
   >
   > *AWS keys, GCP service accounts, GitHub tokens, Slack webhooks, JWTs, and database URIs with embedded passwords are scrubbed in-memory. If an extraction violation occurs, the system fails closed. Zero raw credentials ever reach disk, database, or LLM prompts."*
 
@@ -50,7 +50,7 @@
 * **Speaker:**
   > *"This is our flagship capability: the **Unified Investigation Workspace**.*
   >
-  > *On the left: The **Incident Replay Scrubber** and **9-Column Operational Audit Timeline**. Notice the explicit columns exposing timestamp, source, evidence ID, redacted command, exit code, state transition, and verification gate. Never trust exit code 0 alone—only verified cluster state recovery counts.*
+  > *On the left: The **Incident Replay Scrubber** and **9-Column Operational Audit Timeline**. Notice the explicit columns exposing timestamp, source, evidence ID, redacted command, exit code, state transition, and verification gate. Never trust exit code 0 alone—our live Kubernetes State Collector (`opsgenome/watcher/k8s.py`) connects directly to the cluster API to verify real pod readiness (`0/1` -> `1/1`), container restart recovery, and ConfigMap `resourceVersion` deltas before certifying a fix.*
   >
   > *On the right: The **Decision & Provenance Reasoning Panel**. Notice the status badge: **`AWAITING HUMAN EXECUTION`**. OpsGenome is built with operational humility: AI proposes, evidence verifies, human approves. There is zero autonomous black-box remediation.*
   >
@@ -60,12 +60,12 @@
   > 3. *Why Not Alternatives: Known Dead Ends explicitly ruled out so engineers don't repeat failed steps.*
   > 4. *Correlated Evidence Citations: Click any `E...` evidence card on the right, and the timeline scrubber immediately highlights that exact operational step on the left.*
   >
-  > *Notice our Evidence Grounding Rate: **100% of accepted claims supported by concrete telemetry**."*
+  > *Notice our Evidence Grounding Gate: We do not trust the model's claims by default — every claim is verified against operational evidence, and claims that fail verification are caught and blocked before reaching the user. In our adversarial stress test, the model attempted hallucinations at a 30% rate (3 of 10 claims ungrounded), and our verification gate achieved an empirically verified **100% Gate Enforcement Rate**, blocking all 3 ungrounded claims while publishing only verified, auditable steps. The metric dynamically tracks `successfully_blocked / total_failed` per run rather than assuming an architectural invariant."*
 
 ---
 
 ### [2:45 - 3:45] Deterministic Evidence Boundary & Knowledge Decay
-* **Action:** Click the **Knowledge** tab. Point to the side-by-side confidence metrics (`Historical Success Rate: 100%` vs `Evidence Confidence: 85%`). Point to the decay status badges (`VERIFIED`, `AGING`, `STALE`, `CONTRADICTED`). Then click **Search** and query: `payments timeout 504`.
+* **Action:** Click the **Knowledge** tab. Point to the confidence metrics (Historical Success Rate vs Evidence Confidence with cold-start damping). Point to the decay status badges (`VERIFIED`, `AGING`, `STALE`, `CONTRADICTED`). Then click **Search** and query: `payments timeout 504`.
 * **Speaker:**
   > *"Notice how we handle confidence scores: We reject vague marketing claims. We explicitly separate **Historical Success Rate** from **Current Evidence Confidence** using a sample-size damping factor so small samples are never artificially overconfident.
   >
@@ -82,11 +82,11 @@
   > *"SREs have zero tolerance for sluggish tools. When an outage hits, you need answers in milliseconds.
   >
   > *Look at the live benchmark output on screen:*
-  > - *Recurrence matching intake: **0.23 milliseconds** (<50ms SLA)!*
+  > - *Recurrence intake matching: **0.25 milliseconds** (<50ms SLA)!*
   > - *Total core operational loop: **35.2 milliseconds**.*
-  > - *Multi-scale recurrence search: **1.24 ms** (100 scale), **13.04 ms** (1,000 scale), **156.27 ms** (10,000 scale).*
-  > - *In-memory fail-closed redaction: **over 41,000 operations per second**.*
-  > - *Zero mock data. Measured on local hardware with field-level authenticated encryption (Fernet AES-128-CBC + HMAC-SHA256).*
+  > - *Multi-scale recurrence search: **1.28 ms** (100 scale), **13.35 ms** (1,000 scale), **155.30 ms** (10,000 scale).*
+  > - *In-memory fail-closed redaction: **over 42,000 operations per second**.*
+  > - *Zero mock data. Measured on local hardware with client-side secret redaction and Fernet cryptography utility.*
   >
   > *Before the on-call engineer can even type `kubectl get pods`, OpsGenome has matched the incident signature against past memory and surfaced the verified fix."*
 
@@ -99,7 +99,7 @@
   > 1. *It solves a real \$100B enterprise problem: tribal operational knowledge walking out the door.*
   > 2. *It is architected with SRE humility: AI proposes; deterministic evidence verifies. No hallucinated auto-remediations.*
   > 3. *It has an architectural, fail-closed security boundary: zero unredacted secrets.*
-  > 4. *It is proven by 46 rigorous tests and sub-millisecond benchmarks.*
+  > 4. *It is proven by 61 passing tests (including live Kubernetes integration tests) and sub-millisecond intake benchmarks.*
   >
   > *OpsGenome preserves production memory before expertise walks out the door. Thank you."*
 
@@ -109,13 +109,14 @@
 
 | Judge Question | Winning Technical Response |
 | :--- | :--- |
+| **"How does your system verify that a command actually fixed the problem, rather than trusting exit code 0?"** | We don't trust exit code 0 alone: OpsGenome captures the real Kubernetes state before and after remediation (`opsgenome/watcher/k8s.py`) and verifies concrete infrastructure changes such as ConfigMap resourceVersion/checksum changes and Pod readiness, phase, restart count, and failure-state transitions, failing visibly with typed exceptions (`K8sClusterUnreachableError`, `K8sNamespaceNotFoundError`, `K8sPermissionDeniedError`) if the cluster is unreachable rather than substituting synthetic fallback data. Terminal stdout/stderr stream capture is scoped to future PTY wrapper roadmap work. |
 | **"Why not just use Claude / ChatGPT directly?"** | General-purpose LLMs hallucinate commands, cannot inspect Kubernetes cluster states, lack fail-closed credential isolation, and have no institutional memory of what failed in *your* architecture. OpsGenome is a deterministic operational memory system where AI proposes but evidence verifies. |
 | **"How do you handle sensitive secrets in terminal commands?"** | We use a fail-closed sanitization boundary before storage or prompt creation: multi-pattern regex covering AWS, GCP, GitHub, Slack, and JWTs, combined with Shannon entropy detection. If any extraction error occurs, the pipeline fails closed. Zero secrets ever touch disk or LLM prompts. |
 | **"What if the environment changed and the old fix now breaks things?"** | OpsGenome enforces a **Knowledge Decay Lifecycle** (`VERIFIED` $\rightarrow$ `AGING` $\rightarrow$ `STALE`). If a past command is run and fails, it is automatically demoted to `CONTRADICTED` and moved to Known Dead Ends. |
 | **"Doesn't a human still have to write the post-mortem?"** | No. OpsGenome auto-generates markdown runbooks directly from verified terminal event sequences, including both the successful fix and the ruled-out dead ends. |
-| **"Why not just use Confluence or Notion runbooks?"** | Confluence runbooks are written days after the incident from fuzzy memory, take hours to write, are never updated, and miss all the dead ends. OpsGenome captures real-world actions non-intrusively from terminal hooks and verifies state deltas deterministically. |
+| **"Why not just use Confluence or Notion runbooks?"** | Confluence runbooks are written days after the incident from fuzzy memory, take hours to write, are never updated, and miss all the dead ends. OpsGenome captures real-world actions non-intrusively from terminal hooks and evaluates state deltas deterministically via live Kubernetes API polling. |
 | **"What if your AI hallucinates a dangerous command like `rm -rf`?"** | Our AI engine is strictly constrained: runbook steps MUST cite existing captured event IDs. If an LLM response cites a command ID not present in the verified incident, our ingestion validator immediately rejects it. Furthermore, recommendations are display-only—OpsGenome never executes commands automatically. |
-| **"How does this scale to thousands of services?"** | Our storage layer uses lightweight SQLite with deterministic signature indexing. In our benchmarks, signature matching runs in 0.23ms intake and 152ms across 10,000 items at 42k+ ops/sec. Hosted deployments can drop in PostgreSQL/pgvector using our exact same storage repository interface. |
+| **"How does this scale to thousands of services?"** | Our storage layer uses lightweight SQLite with deterministic signature indexing. In our benchmarks, recurrence signature intake matching runs in 0.25ms (155ms across 10,000 historical items), while in-memory secret redaction processes over 42,000 events/sec. Hosted deployments can drop in PostgreSQL/pgvector using our exact same storage repository interface. |
 
 ---
 

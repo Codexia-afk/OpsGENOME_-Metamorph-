@@ -101,7 +101,7 @@ def show_categorized_help() -> None:
         (
             "🔍 4. PREVENTION, DRIFT RADAR & BUS FACTOR",
             [
-                ("drift [3 / d]", "Systemic Drift Radar", "Detects repeating root causes and automatically generates Jira/Linear defect tickets."),
+                ("drift [3 / d]", "Systemic Drift Radar", "Detects repeating root causes and formats structured architectural defect tickets stored in SQLite."),
                 ("bus-factor [4 / b]", "Tribal Knowledge Risk Matrix", "Calculates bus factor ratings and identifies single-point-of-failure on-call engineers."),
             ],
         ),
@@ -109,7 +109,7 @@ def show_categorized_help() -> None:
             "⚙️ 5. PLATFORM SETUP, DAEMON & DEMO",
             [
                 ("demo [6 / t]", "Run 6-Step Hackathon Demo", "Executes full end-to-end demo (CrashLoopBackOff -> Redaction -> Recurrence -> Drift)."),
-                ("daemon [7 / w]", "Launch Daemon & Web UI", "Starts REST API, Webhook listener (PagerDuty/Slack), and Web Dashboard on :8765."),
+                ("daemon [7 / w]", "Launch Daemon", "Starts local daemon listener on secure Unix Domain Socket (mode 0600, zero TCP exposure)."),
                 ("init", "Install Shell Integration Hooks", "Installs non-blocking async capture hooks into ~/.zshrc or ~/.bashrc."),
                 ("help [? / h]", "Display This Help Matrix", "Shows categorized command reference and quick action shortcuts."),
             ],
@@ -200,41 +200,80 @@ def cmd_init() -> None:
 
 
 @cli.command("daemon")
-@click.option("--host", default="127.0.0.1", help="Host to bind daemon to.")
-@click.option("--port", default=8765, type=int, help="Port to listen on.")
-def cmd_daemon(host: str, port: int) -> None:
-    """Start the OpsGenome local background daemon & webhook server."""
+@click.option("--socket-path", "-s", default=None, help="Path to Unix domain socket (default: ~/.opsgenome/daemon.sock).")
+def cmd_daemon(socket_path: str | None) -> None:
+    """Start the OpsGenome local background daemon on a secure Unix domain socket."""
+    from opsgenome.cli.client import get_default_socket_path
+    import socket
+    from pathlib import Path
+
     print_logo()
 
-    # Check if port is already occupied
-    import socket
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.5)
-            if s.connect_ex((host, port)) == 0:
+    sock_str = socket_path or get_default_socket_path()
+    sock_path = Path(sock_str)
+    sock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Check if socket is already active
+    if sock_path.exists():
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                s.connect(str(sock_path))
                 content = (
-                    f"• Daemon is ALREADY active on: http://{host}:{port}\n"
-                    f"• Web Dashboard:             http://{host}:{port}\n"
-                    f"• To stop previous process:   lsof -ti :{port} | xargs kill -9"
+                    f"• Daemon is ALREADY active on socket: {sock_str}\n"
+                    f"• Socket Permissions: 0600 (owner read/write only)\n"
+                    f"• TCP Port Binding: NONE (zero network/loopback exposure)"
                 )
                 print_banner("OpsGenome Daemon Already Running", content, color=YELLOW)
                 return
-    except Exception:
-        pass
+        except Exception:
+            # Stale socket file, unlink it
+            sock_path.unlink(missing_ok=True)
+
+    app = create_app()
 
     content = (
-        f"• Web Dashboard URL:   http://{host}:{port}\n"
-        f"• PagerDuty Webhook:   http://{host}:{port}/api/v1/webhooks/pagerduty\n"
-        f"• Live War Room WS:    ws://{host}:{port}/ws/live"
+        f"• Unix Domain Socket:  {sock_str}\n"
+        f"• Access Control:      POSIX 0600 (Restricted to current user)\n"
+        f"• Network Exposure:    NONE (No TCP ports or loopback addresses bound)\n"
+        f"• Client Integration:  In-process pre-redaction before socket dispatch"
     )
-    print_banner("OpsGenome Operational Memory Engine Online", content, color=GREEN)
+    print_banner("OpsGenome Daemon Online (Unix Domain Socket Mode)", content, color=GREEN)
+
+    # Bind socket with strict 0600 permissions
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(str(sock_path))
+    os.chmod(str(sock_path), 0o600)
+    sock.listen(128)
+
+    config = uvicorn.Config(app, log_level="info")
+    server = uvicorn.Server(config)
     try:
-        uvicorn.run(app, host=host, port=port, log_level="info")
-    except (OSError, SystemExit):
-        print(f"\n{YELLOW}⚠ Port {port} is already in use by another OpsGenome daemon process.{RESET}")
-        print(f"  • Your OpsGenome daemon is ALREADY active and running!")
-        print(f"  • View it directly in browser: {CYAN}http://localhost:{port}{RESET}")
-        print(f"  • Or stop the old process to restart: {GREEN}lsof -ti :{port} | xargs kill -9{RESET}\n")
+        server.run(sockets=[sock])
+    finally:
+        sock.close()
+        sock_path.unlink(missing_ok=True)
+
+
+@cli.command("redact-and-send")
+@click.option("--command", "-c", default=None, help="Command string to redact and send.")
+@click.option("--exit-code", "-e", default=0, type=int, help="Command exit code.")
+@click.option("--duration-ms", "-d", default=0, type=int, help="Command duration in ms.")
+@click.option("--cwd", "-w", default="", help="Working directory.")
+@click.option("--socket-path", "-s", default=None, help="Path to Unix domain socket.")
+def cmd_redact_and_send(command: str | None, exit_code: int, duration_ms: int, cwd: str, socket_path: str | None) -> None:
+    """Redact command in-process on client and transmit via Unix Domain Socket."""
+    from opsgenome.cli.client import redact_and_dispatch
+    raw_cmd = command if command is not None else sys.stdin.read().strip()
+    if not raw_cmd:
+        return
+    redact_and_dispatch(
+        command=raw_cmd,
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        cwd=cwd or os.getcwd(),
+        socket_path=socket_path,
+    )
 
 
 

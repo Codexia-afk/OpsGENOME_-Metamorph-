@@ -162,7 +162,7 @@ def run_benchmark():
         incident_id=inc1.id,
     )
     t_extract = (time.perf_counter() - t0) * 1000
-    timings.append(("3. Causal Chain & Grounding Check", t_extract, f"Accepted: {grounding.accepted_claim_grounding * 100:.0f}% (Raw Support: {grounding.raw_claim_support_rate * 100:.0f}%)"))
+    timings.append(("3. Causal Chain & Grounding Check", t_extract, f"Gate Enforcement: {grounding.gate_enforcement_rate * 100:.0f}% (Hallucination Attempt: {grounding.hallucination_attempt_rate * 100:.0f}%)"))
 
     # Stage 4: Runbook Synthesis & Resolution
     t0 = time.perf_counter()

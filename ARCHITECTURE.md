@@ -27,14 +27,14 @@
 |                        3. Signal Extraction & State Diff                |
 |  - Pre-filter: drop trivial commands (ls, pwd, cd, clear)              |
 |  - Exit-code weighting: exit != 0 -> Negative Knowledge / Dead End      |
-|  - State transition verification: pod state & HTTP response delta       |
+|  - State delta evaluation: before/after health check diffs (when given) |
 |  - Recency-to-resolution decay: prioritize actions preceding recovery   |
 +------------------------------------+------------------------------------+
                                      | (Correlated event graph)
                                      v
 +-------------------------------------------------------------------------+
 |                        4. Storage & Persistence Engine                  |
-|  - Field-level authenticated encryption (Fernet AES/HMAC) + SQLite       |
+|  - Client-side redaction + Fernet crypto utility + SQLite WAL           |
 |  - Normalized models: Incidents, Events, Evidence, Runbooks, Snapshots  |
 |  - Sub-millisecond signature indexing for instant recurrence lookup     |
 +------------------------------------+------------------------------------+
@@ -42,7 +42,7 @@
                                      v
 +-------------------------------------------------------------------------+
 |                        5. Deterministic Evidence & AI Engine            |
-|  - Evidence Grounding Validator: supported claims / total claims        |
+|  - Evidence Grounding Validator: Publication Verification Gate          |
 |  - Evidence Provenance Engine: 6-stage continuous backward trace        |
 |  - Why / Why Not Generator: records chosen fix vs rejected alternatives |
 |  - Knowledge Decay Engine: evaluates VERIFIED, AGING, STALE, CONTRADICTED|
@@ -64,7 +64,7 @@
 ## 2. Core Architectural Pillars
 
 ### A. Non-Intrusive Capture Boundary
-OpsGenome does not require developers or SREs to change their daily habits. Shell hooks (`preexec` and `precmd`) record command lines, working directory, exit status, duration, and output streams directly from standard terminal sessions. In parallel, webhook endpoints catch PagerDuty alerts to bind commands directly to active incident IDs.
+OpsGenome does not require developers or SREs to change their daily habits. Shell hooks (`preexec` and `precmd`) record command lines, working directory, exit status, and execution duration directly from standard terminal sessions (stdout/stderr capture is planned for a dedicated PTY wrapper agent). In parallel, webhook endpoints catch PagerDuty, Opsgenie, and Slack alerts to bind commands directly to active incident IDs.
 
 ### B. Fail-Closed Security Isolation
 Operational telemetry contains credentials by nature (connection strings, tokens, bearer headers). OpsGenome guarantees that:
@@ -72,8 +72,8 @@ Operational telemetry contains credentials by nature (connection strings, tokens
 - Vendor patterns and Shannon entropy checks run concurrently.
 - If any regex engine or parser throws an unexpected exception, the redaction handler fails closed, replacing the block with `[REDACTED_FAIL_CLOSED_ERROR]`.
 
-### C. State-Transition Verification (No "Exit Code 0" Fallacy)
-A script that returns exit code `0` is frequently not the fix (e.g., restarting a service whose underlying database is saturated). OpsGenome pairs commands with pre- and post-execution state snapshots (HTTP latency, pod status, error rates). Only actions that produce a positive state delta are promoted to verified fix steps.
+### C. State-Transition Evaluation (No "Exit Code 0" Fallacy)
+A script that returns exit code `0` is frequently not the fix (e.g., restarting a service whose underlying database is saturated). OpsGenome pairs commands with pre- and post-execution state snapshots captured via its live Kubernetes State Collector (`opsgenome/watcher/k8s.py`) or telemetry payloads. The collector connects to the cluster API using the official Kubernetes client to poll pod phases, `0/1` container readiness, restart counters, failure reasons (`CrashLoopBackOff`, `Error`, `OOMKilled`), and ConfigMap `resourceVersion` / checksum deltas. Only actions that produce a verified positive state delta are promoted to verified fix steps, while commands returning exit code `0` without restoring health are archived as Known Dead Ends. Collector connections fail visibly with specific typed exceptions (`K8sClusterUnreachableError`, `K8sNamespaceNotFoundError`, `K8sPermissionDeniedError`), never silently returning synthetic data.
 
 ### D. Why / Why Not Decision Model
 For every synthesized runbook, OpsGenome captures the alternative hypotheses investigated by engineers and explains why they were ruled out. This forms an immutable audit trail that defends the chosen remediation against naive regressions.
@@ -89,66 +89,86 @@ Runbooks are living artifacts. OpsGenome computes an automated knowledge status 
 
 ## 3. Storage Model Specification
 
-The local database uses SQLite with WAL (Write-Ahead Logging) mode enabled:
+The local database uses SQLite with WAL (Write-Ahead Logging) mode enabled, matching `opsgenome/storage/db.py`:
 
 ```sql
 -- Core Incident Model
 CREATE TABLE incidents (
     id TEXT PRIMARY KEY,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    trigger_source TEXT NOT NULL,
+    status TEXT NOT NULL,
     title TEXT NOT NULL,
     service TEXT NOT NULL,
+    environment TEXT NOT NULL,
     severity TEXT NOT NULL,
-    status TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    resolved_at TEXT,
-    root_cause TEXT,
-    commander TEXT
+    resolved_by TEXT NOT NULL,
+    symptoms_json TEXT,
+    root_cause_category TEXT,
+    summary TEXT
 );
 
 -- Captured Terminal Events
 CREATE TABLE events (
     id TEXT PRIMARY KEY,
     incident_id TEXT NOT NULL,
+    schema_version TEXT NOT NULL DEFAULT '1.0',
     timestamp TEXT NOT NULL,
-    command TEXT NOT NULL,
-    stdout TEXT,
-    stderr TEXT,
-    exit_code INTEGER,
-    duration_ms REAL,
-    is_noise INTEGER DEFAULT 0,
-    signal_score REAL DEFAULT 0.0,
+    raw_command TEXT NOT NULL,
+    exit_code INTEGER NOT NULL,
+    stdout_snippet TEXT,
+    stderr_snippet TEXT,
+    signal_weight REAL NOT NULL,
+    classification TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
     cwd TEXT,
+    tool_category TEXT NOT NULL,
     FOREIGN KEY(incident_id) REFERENCES incidents(id)
 );
 
--- Deterministic Evidence Records
-CREATE TABLE evidence (
+-- State Snapshots
+CREATE TABLE state_snapshots (
     id TEXT PRIMARY KEY,
     incident_id TEXT NOT NULL,
     event_id TEXT,
-    category TEXT NOT NULL, -- fact, inference, recommendation
-    description TEXT NOT NULL,
-    metric_name TEXT,
-    before_value TEXT,
-    after_value TEXT,
-    confidence REAL DEFAULT 1.0,
-    created_at TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    before_state_json TEXT,
+    after_state_json TEXT,
+    diff_summary TEXT,
+    is_healthy INTEGER NOT NULL,
+    status_summary TEXT,
+    FOREIGN KEY(incident_id) REFERENCES incidents(id)
+);
+
+-- Causal Chains
+CREATE TABLE causal_chains (
+    id TEXT PRIMARY KEY,
+    incident_id TEXT NOT NULL,
+    symptom TEXT NOT NULL,
+    hypothesis TEXT NOT NULL,
+    evidence_event_ids_json TEXT NOT NULL,
+    fix_event_ids_json TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    confidence_score REAL NOT NULL,
+    recovery_time_seconds INTEGER NOT NULL,
     FOREIGN KEY(incident_id) REFERENCES incidents(id)
 );
 
 -- Versioned Runbooks
 CREATE TABLE runbooks (
     id TEXT PRIMARY KEY,
-    service TEXT NOT NULL,
-    trigger_pattern TEXT NOT NULL,
+    causal_chain_id TEXT NOT NULL,
     title TEXT NOT NULL,
-    steps TEXT NOT NULL, -- JSON array of verified steps
-    confidence_score REAL DEFAULT 0.0,
-    sample_size INTEGER DEFAULT 1,
-    status TEXT DEFAULT 'VERIFIED',
-    why_why_not TEXT, -- JSON structure of chosen vs ruled-out options
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    root_cause_category TEXT NOT NULL,
+    steps_json TEXT NOT NULL,
+    success_count INTEGER NOT NULL,
+    failure_count INTEGER NOT NULL,
+    confidence_score REAL NOT NULL,
+    version INTEGER NOT NULL,
+    last_matched_at TEXT NOT NULL,
+    service TEXT NOT NULL,
+    FOREIGN KEY(causal_chain_id) REFERENCES causal_chains(id)
 );
 ```
 
@@ -158,8 +178,8 @@ CREATE TABLE runbooks (
 
 | Layer | Local MVP (Built) | Hosted Enterprise Target |
 | :--- | :--- | :--- |
-| **Storage** | Encrypted SQLite with WAL | Distributed PostgreSQL + TimescaleDB |
+| **Storage** | SQLite with WAL & client-side secret redaction | Distributed PostgreSQL + TimescaleDB |
 | **Vector Index** | Deterministic token signature hashing | pgvector + HNSW index embeddings |
 | **Capture Agent**| Python shell hooks (`preexec`/`precmd`) | Lightweight Go/eBPF daemon with offline queue |
 | **Auth & Access**| Localhost origin isolation | OIDC / SAML SSO with team-level RBAC |
-| **Throughput** | 42,650 ops/sec | 500,000+ events/sec distributed pipeline |
+| **Redaction Throughput** | 42,020 ops/sec (in-memory) | 500,000+ events/sec distributed pipeline |
