@@ -24,6 +24,7 @@ from typing import Any
 
 from opsgenome.ai.engine import AIReasoningEngine
 from opsgenome.security.redactor import redact_text
+from opsgenome.signal.log_distiller import SemanticLogDistiller
 from opsgenome.storage.db import DatabaseManager
 
 
@@ -54,6 +55,10 @@ class CodeFixResult:
     verification_stdout: str = ""
     verification_stderr: str = ""
     error_message: str | None = None
+    raw_bytes: int = 0
+    distilled_bytes: int = 0
+    compression_percent: float = 0.0
+    cache_hit: bool = False
 
 
 class CodeFixEngine:
@@ -167,11 +172,14 @@ class CodeFixEngine:
         safe_code = redact_text(original_code)
         safe_error = redact_text(failure.stderr or failure.stdout)
 
+        # Semantic Log Distillation: Compress noisy traceback frames into minimal semantic signature
+        distilled = SemanticLogDistiller.distill_traceback(safe_error)
+
         diagnosis = self.ai_engine.diagnose_and_fix_code(
             filename=file_path.name,
             code_content=safe_code,
             command=failure.command,
-            error_output=safe_error,
+            error_output=distilled.distilled_text or safe_error,
             exit_code=failure.exit_code,
         )
 
@@ -187,6 +195,10 @@ class CodeFixEngine:
             original_code=original_code,
             fixed_code=fixed_code,
             explanation=diagnosis.get("explanation", ""),
+            raw_bytes=distilled.raw_bytes,
+            distilled_bytes=distilled.distilled_bytes,
+            compression_percent=distilled.compression_percent,
+            cache_hit=diagnosis.get("cache_hit", False),
         )
 
     @staticmethod

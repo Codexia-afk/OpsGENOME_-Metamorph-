@@ -857,6 +857,16 @@ def cmd_fix(target: str | None, ai: str, model: str | None, auto_approve: bool, 
     if fix_result.explanation:
         print(f"• {BOLD}Analysis:{RESET} {fix_result.explanation}")
 
+    if fix_result.raw_bytes > 0:
+        print(f"• {BOLD}Telemetry Distillation:{RESET} {GREEN}{fix_result.raw_bytes:,} bytes{RESET} raw log ➔ {CYAN}{fix_result.distilled_bytes:,} bytes{RESET} semantic frame ({BOLD}{GREEN}{fix_result.compression_percent}% token compression{RESET})")
+
+    if fix_result.cache_hit:
+        print(f"• {BOLD}API Optimization:{RESET} {BOLD}{GREEN}MEMORY CACHE HIT{RESET} (0 external API calls consumed)")
+    elif ai_engine.provider == "offline":
+        print(f"• {BOLD}API Optimization:{RESET} {BOLD}{CYAN}DETERMINISTIC FIRST-PASS{RESET} (0 external API calls consumed)")
+    else:
+        print(f"• {BOLD}API Optimization:{RESET} {BOLD}{GREEN}1 COMPACT SEMANTIC PROMPT{RESET} (rate-limit protected)")
+
     if not fix_result.diff.strip():
         print(f"\n{YELLOW}No code modifications generated. Script may already be up to date or failure is unhandled.{RESET}\n")
         return

@@ -13,12 +13,14 @@ Call 2 — Runbook Narration:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 from typing import Any
 import httpx
 from opsgenome.signal.filter import SignalFilter
+from opsgenome.signal.log_distiller import SemanticLogDistiller
 from opsgenome.storage.models import (
     CausalChain,
     ChainOutcome,
@@ -65,6 +67,7 @@ class AIReasoningEngine:
                 self.model = model or "claude-3-5-sonnet-20241022"
             else:
                 self.model = model or "deterministic-offline"
+        self._idempotency_cache: dict[str, dict[str, Any]] = {}
 
     # --- CALL 1: Chain Assembly (Structured JSON) ---
 
@@ -119,17 +122,31 @@ class AIReasoningEngine:
         exit_code: int = 1,
     ) -> dict[str, Any]:
         """Diagnose code failure and synthesize corrected source code using Gemini, Claude, or deterministic heuristic."""
+        # 1. Idempotency Cache Check (0 API calls on recurrent signature)
+        cache_key = hashlib.sha256(f"{filename}:{code_content}:{error_output}".encode("utf-8")).hexdigest()
+        if cache_key in self._idempotency_cache:
+            hit = dict(self._idempotency_cache[cache_key])
+            hit["cache_hit"] = True
+            return hit
+
+        res = None
         if self.provider == "gemini" and self.gemini_api_key:
             try:
-                return self._gemini_code_fix(filename, code_content, command, error_output, exit_code)
+                res = self._gemini_code_fix(filename, code_content, command, error_output, exit_code)
             except Exception:
                 pass
         elif self.provider == "anthropic" and self.anthropic_api_key:
             try:
-                return self._anthropic_code_fix(filename, code_content, command, error_output, exit_code)
+                res = self._anthropic_code_fix(filename, code_content, command, error_output, exit_code)
             except Exception:
                 pass
-        return self._heuristic_code_fix(filename, code_content, command, error_output, exit_code)
+
+        if not res:
+            res = self._heuristic_code_fix(filename, code_content, command, error_output, exit_code)
+
+        res["cache_hit"] = False
+        self._idempotency_cache[cache_key] = res
+        return res
 
     # --- Anthropic Claude API Callers ---
 
