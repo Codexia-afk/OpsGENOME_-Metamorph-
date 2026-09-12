@@ -28,6 +28,7 @@ from opsgenome.storage.models import (
     Incident,
     IncidentStatus,
     KnowledgeStatus,
+    RankedHypothesis,
     RecurrenceSignature,
     Runbook,
     StateSnapshot,
@@ -235,6 +236,8 @@ class DatabaseManager:
             ensure_columns("causal_chains", [
                 ("why_why_not_json", "TEXT DEFAULT '{}'"),
                 ("evidence_json", "TEXT DEFAULT '[]'"),
+                ("ranked_hypotheses_json", "TEXT DEFAULT '[]'"),
+                ("disambiguation_required", "INTEGER DEFAULT 0"),
             ])
 
             ensure_columns("runbooks", [
@@ -614,6 +617,8 @@ class DatabaseManager:
                 "recovery_time_seconds": chain.recovery_time_seconds,
                 "why_why_not_json": json.dumps(chain.why_why_not.model_dump() if chain.why_why_not else {}),
                 "evidence_json": json.dumps([e.model_dump() for e in chain.evidence_items], default=str),
+                "ranked_hypotheses_json": json.dumps([h.model_dump() for h in chain.ranked_hypotheses]),
+                "disambiguation_required": 1 if chain.disambiguation_required else 0,
             }
 
             valid_cols = [c for c in cols if c in data_map]
@@ -637,6 +642,9 @@ class DatabaseManager:
                 wwn = WhyWhyNot(**wwn_raw) if wwn_raw else None
                 ev_raw = json.loads(r["evidence_json"]) if "evidence_json" in keys and r["evidence_json"] else []
                 ev_items = [Evidence(**item) for item in ev_raw] if ev_raw else []
+                ranked_h_raw = json.loads(r["ranked_hypotheses_json"]) if "ranked_hypotheses_json" in keys and r["ranked_hypotheses_json"] else []
+                ranked_h = [RankedHypothesis(**h) for h in ranked_h_raw] if ranked_h_raw else []
+                disamb_req = bool(r["disambiguation_required"]) if "disambiguation_required" in keys and r["disambiguation_required"] else False
                 chains.append(
                     CausalChain(
                         id=r["id"],
@@ -650,6 +658,8 @@ class DatabaseManager:
                         recovery_time_seconds=r["recovery_time_seconds"],
                         evidence_items=ev_items,
                         why_why_not=wwn,
+                        ranked_hypotheses=ranked_h,
+                        disambiguation_required=disamb_req,
                     )
                 )
             return chains

@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
+import socket
 import sys
 import click
 from tabulate import tabulate
@@ -110,6 +112,7 @@ def show_categorized_help() -> None:
             [
                 ("demo [6 / t]", "Run 6-Step Hackathon Demo", "Executes full end-to-end demo (CrashLoopBackOff -> Redaction -> Recurrence -> Drift)."),
                 ("daemon [7 / w]", "Launch Daemon", "Starts local daemon listener on secure Unix Domain Socket (mode 0600, zero TCP exposure)."),
+                ("doctor [8 / c]", "Automated Health & Diagnostics", "Inspects socket, database, kubernetes, hooks, and AI engine status."),
                 ("init", "Install Shell Integration Hooks", "Installs non-blocking async capture hooks into ~/.zshrc or ~/.bashrc."),
                 ("help [? / h]", "Display This Help Matrix", "Shows categorized command reference and quick action shortcuts."),
             ],
@@ -147,10 +150,11 @@ def cli(ctx: click.Context) -> None:
         print(f"  {BOLD}[5]{RESET} or {BOLD}[p]{RESET} -> {CYAN}replay{RESET}        (SRE Flight Simulator Interactive Replay)")
         print(f"  {BOLD}[6]{RESET} or {BOLD}[t]{RESET} -> {CYAN}demo{RESET}          (Run 6-Step Hackathon Core Loop Demo)")
         print(f"  {BOLD}[7]{RESET} or {BOLD}[w]{RESET} -> {CYAN}daemon{RESET}        (Start Background Daemon & Web Dashboard)")
+        print(f"  {BOLD}[8]{RESET} or {BOLD}[c]{RESET} -> {CYAN}doctor{RESET}        (Automated Diagnostic System Healthcheck)")
         print(f"  {BOLD}[?]{RESET} or {BOLD}[h]{RESET} -> {CYAN}help{RESET}          (View Full Categorized Command Matrix)")
         print(f"  {BOLD}[q]{RESET}         -> Exit\n")
 
-        choice = click.prompt(f"{YELLOW}Select an action [1-7 / s / r / d / b / p / t / w / ? / q]{RESET}", default="?", show_default=False)
+        choice = click.prompt(f"{YELLOW}Select an action [1-8 / s / r / d / b / p / t / w / c / ? / q]{RESET}", default="?", show_default=False)
         choice_clean = choice.strip().lower()
 
         if choice_clean in ["1", "s"]:
@@ -172,6 +176,8 @@ def cli(ctx: click.Context) -> None:
             ctx.invoke(cmd_demo)
         elif choice_clean in ["7", "w"]:
             ctx.invoke(cmd_daemon)
+        elif choice_clean in ["8", "c"]:
+            ctx.invoke(cmd_doctor)
         elif choice_clean in ["?", "h", "help"]:
             show_categorized_help()
         elif choice_clean == "q":
@@ -569,7 +575,112 @@ def cmd_bus_factor() -> None:
         ])
     print(f"\n{BOLD}{CYAN}OpsGenome Tribal Knowledge & Bus Factor Analysis{RESET}")
     print(tabulate(table_rows, headers=["Service", "Bus Factor", "Top Expert", "Share", "Risk Level", "Recommendation"], tablefmt="fancy_grid"))
-    print()
+@cli.command("doctor")
+@click.option("--namespace", "-n", default="payments", help="Kubernetes namespace to check.")
+def cmd_doctor(namespace: str) -> None:
+    """Run automated diagnostic healthcheck across all OpsGenome subsystems."""
+    from opsgenome.cli.client import get_default_socket_path
+    from opsgenome.watcher.k8s import K8sCollector
+
+    print_logo()
+    print(f"\n{BOLD}{CYAN}=== OpsGenome Doctor — Automated System Health & Diagnostics ==={RESET}\n")
+
+    results = []
+
+    # 1. Unix Domain Socket
+    sock_str = get_default_socket_path()
+    sock_path = Path(sock_str)
+    if sock_path.exists():
+        mode = oct(sock_path.stat().st_mode)[-4:]
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                s.connect(sock_str)
+                sock_status = f"{GREEN}ONLINE{RESET} (mode {mode})"
+                sock_diag = f"UDS active at {sock_str} (POSIX 0600 isolation)."
+        except Exception:
+            sock_status = f"{YELLOW}STALE SOCKET{RESET}"
+            sock_diag = f"Socket file exists but is not responding. Fix: rm -f {sock_str} (TROUBLESHOOTING.md §5.2)"
+    else:
+        sock_status = f"{YELLOW}OFFLINE{RESET}"
+        sock_diag = f"Daemon not running. Fix: opsgenome daemon (TROUBLESHOOTING.md §5.1)"
+    results.append(["IPC Socket", sock_status, sock_diag])
+
+    # 2. Database & Schema Integrity
+    try:
+        db = DatabaseManager()
+        with db._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA journal_mode;")
+            journal_mode = cursor.fetchone()[0]
+            cursor.execute("PRAGMA table_info(causal_chains);")
+            cols = [r["name"] for r in cursor.fetchall()]
+            missing = [c for c in ["ranked_hypotheses_json", "disambiguation_required"] if c not in cols]
+            if missing:
+                db_status = f"{YELLOW}SCHEMA DRIFT{RESET}"
+                db_diag = f"Missing columns: {missing}. Restart daemon to auto-migrate. (TROUBLESHOOTING.md §7.2)"
+            else:
+                db_status = f"{GREEN}HEALTHY{RESET} (WAL: {journal_mode.upper()})"
+                db_diag = f"SQLite verified with WAL mode at {db.db_path}."
+    except Exception as e:
+        db_status = f"{RED}ERROR{RESET}"
+        db_diag = f"{e}. (TROUBLESHOOTING.md §7.1)"
+    results.append(["SQLite Storage", db_status, db_diag])
+
+    # 3. Kubernetes Collector
+    try:
+        collector = K8sCollector(namespace=namespace)
+        health = collector.check_health()
+        if health.get("healthy"):
+            k8s_status = f"{GREEN}CONNECTED{RESET}"
+            k8s_diag = f"API server responsive; namespace '{namespace}' active."
+        else:
+            k8s_status = f"{YELLOW}UNREACHABLE / RBAC{RESET}"
+            k8s_diag = f"{health.get('error')}. (TROUBLESHOOTING.md §3)"
+    except Exception as e:
+        k8s_status = f"{RED}ERROR{RESET}"
+        k8s_diag = f"{e}. (TROUBLESHOOTING.md §3)"
+    results.append(["Kubernetes Collector", k8s_status, k8s_diag])
+
+    # 4. Shell Integration Hooks
+    home = Path.home()
+    zsh_hook = home / ".opsgenome" / "hooks" / "opsgenome.zsh"
+    zshrc = home / ".zshrc"
+    has_rc = False
+    try:
+        if zshrc.exists():
+            has_rc = "OpsGenome Shell Integration Hook" in zshrc.read_text(errors="ignore")
+    except (PermissionError, OSError):
+        has_rc = False
+
+    try:
+        hook_exists = zsh_hook.exists()
+    except (PermissionError, OSError):
+        hook_exists = False
+
+    if hook_exists and has_rc:
+        hook_status = f"{GREEN}INSTALLED{RESET}"
+        hook_diag = "preexec/precmd hooks active in ~/.zshrc."
+    elif hook_exists:
+        hook_status = f"{YELLOW}PARTIAL{RESET}"
+        hook_diag = "Hook script exists but ~/.zshrc unlinked. Run: opsgenome init"
+    else:
+        hook_status = f"{YELLOW}NOT INSTALLED / UNVERIFIED{RESET}"
+        hook_diag = "Terminal hooks not verified. Run: opsgenome init (TROUBLESHOOTING.md §8.1)"
+    results.append(["Shell Hooks", hook_status, hook_diag])
+
+    # 5. AI Reasoning & Grounding
+    has_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    if has_key:
+        ai_status = f"{GREEN}CLAUDE ONLINE{RESET}"
+        ai_diag = "Anthropic API key set; multi-candidate semantic disambiguation enabled."
+    else:
+        ai_status = f"{CYAN}OFFLINE HEURISTIC{RESET}"
+        ai_diag = "Deterministic rule engine active with honest fallback. (TROUBLESHOOTING.md §6.1)"
+    results.append(["AI Engine", ai_status, ai_diag])
+
+    print(tabulate(results, headers=["Subsystem", "Health Status", "Diagnostic Details / Resolution"], tablefmt="fancy_grid"))
+    print(f"\n{BOLD}{GREEN}💡 Diagnostic Guide:{RESET} For step-by-step root cause analysis and resolution commands, see {CYAN}TROUBLESHOOTING.md{RESET}.\n")
 
 
 if __name__ == "__main__":

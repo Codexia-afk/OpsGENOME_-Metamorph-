@@ -94,6 +94,12 @@ flowchart TD
 - Pre-seeded with **11 realistic historical production incidents** spanning 10 weeks of simulated operational history on `payments-deploy`.
 - Idempotent seeding guaranteed across environments.
 
+### 6. Calibrated AI Reasoning: Hypothesis Disambiguation (The Removal Test)
+- **Calibrated Value Attribution:** Where deterministic heuristics alone are sufficient (single obvious mutation with isolated Kubernetes state recovery), the LLM's contribution is auxiliary narration formatting.
+- **Genuine AI Irreplaceability on Conflicting Evidence:** When evidence genuinely conflicts—e.g. multiple candidate mutations exit 0 within the incident resolution window (such as a ConfigMap pool size patch AND a deployment rollout undo occurring before a 504 recovers)—deterministic regexes cannot determine causality without guessing.
+- **Hypothesis Disambiguation:** The AI reasoning layer ingests raw operational telemetry (without pre-labeled answers), correlates diagnostic error logs with state diffs, and produces a **calibrated, ranked set of hypotheses** (e.g. Rank 1: 65% query regression rollback vs Rank 2: 35% pool expansion), cites concrete supporting evidence, and provides specific distinguishing factors (e.g. APM trace query latency checks).
+- **Enforced Absence of False Confidence:** If the LLM is disabled or removed, the deterministic layer explicitly halts with `outcome="inconclusive"`, `fix_event_ids=[]`, and `ranked_hypotheses=[]`, refusing to assert an unverified single winner.
+
 ---
 
 ## 📊 Benchmark & Performance SLA
@@ -145,7 +151,13 @@ python3 -m demo.run_hackathon_demo
 ```bash
 pytest -v
 ```
-*61 passing unit, security boundary, grounding, and live Kubernetes integration tests in ~6.9s.*
+*63+ passing unit, security boundary, grounding, and live Kubernetes integration tests.*
+
+### 5. Automated Healthcheck & Diagnostics
+```bash
+opsgenome doctor
+```
+*Validates IPC socket, SQLite storage, Kubernetes connectivity, shell hooks, and AI engine status.*
 
 ---
 
@@ -163,6 +175,8 @@ The OpsGenome dashboard is built with a high-density, high-legibility SRE consol
 
 ## 📄 Documentation Links
 
+- 🩺 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) — Exhaustive Error Dictionary, root-cause mechanisms, fix commands, and diagnostic doctor tool.
 - 📋 [DEMO.md](DEMO.md) — 5-minute judge pitch walkthrough, minute-by-minute script, and technical Q&A cheat sheet.
 - 🔒 [SECURITY.md](SECURITY.md) — Threat model, redaction regex rules, Shannon entropy scanner, and fail-closed encryption guarantees.
 - 🏗️ [ARCHITECTURE.md](ARCHITECTURE.md) — Component architecture, state transitions, and enterprise deployment roadmap.
+

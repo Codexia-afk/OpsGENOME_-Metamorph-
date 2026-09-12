@@ -85,6 +85,13 @@ Runbooks are living artifacts. OpsGenome computes an automated knowledge status 
 - **`STALE`** ($> 60$ days, flagged for validation).
 - **`CONTRADICTED`** (invalidated by an incident where the step was executed but failed to recover the service).
 
+### F. Hypothesis Disambiguation (Calibrated AI Reasoning)
+Deterministic heuristics alone (exit codes, command regexes, and time proximity) cannot resolve causality when multiple candidate mutations occur in the recovery window, or when diagnostic logs reveal multiple co-occurring anomalies. OpsGenome explicitly delegates **hypothesis disambiguation** to its AI reasoning engine:
+- **Raw Telemetry Input:** Passes raw commands, exit codes, diagnostic logs (`stdout`/`stderr`), and state diffs without pre-labeled "fix" classifications.
+- **Evidence-Weighted Ranking:** Ranks candidate hypotheses with calibrated confidence scores (e.g., 65% query regression rollback vs. 35% connection pool increase), citing concrete supporting logs and cluster state diffs.
+- **Distinguishing Probes:** Formulates concrete distinguishing factors (e.g., APM query trace latency checks) to isolate the primary cause if further diagnostics are required.
+- **Enforced Absence of False Confidence:** If the LLM is disabled or removed, the deterministic layer halts with `outcome="inconclusive"`, `fix_event_ids=[]`, and `ranked_hypotheses=[]`, refusing to assert an ungrounded single winner.
+
 ---
 
 ## 3. Storage Model Specification
@@ -183,3 +190,17 @@ CREATE TABLE runbooks (
 | **Capture Agent**| Python shell hooks (`preexec`/`precmd`) | Lightweight Go/eBPF daemon with offline queue |
 | **Auth & Access**| Localhost origin isolation | OIDC / SAML SSO with team-level RBAC |
 | **Redaction Throughput** | 42,020 ops/sec (in-memory) | 500,000+ events/sec distributed pipeline |
+
+---
+
+## 5. Diagnostic Architecture & Error Taxonomy
+
+OpsGenome enforces fail-closed isolation across every boundary. Complete error classification, root-cause mechanisms, and operational fix workflows are documented in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
+
+Subsystem boundaries:
+- **Kubernetes Collector (`opsgenome/watcher/k8s.py`)**: Strict typed exceptions (`K8sClusterUnreachableError`, `K8sNamespaceNotFoundError`, `K8sPermissionDeniedError`).
+- **Security Redaction Boundary (`opsgenome/security/redactor.py`, `opsgenome/storage/db.py`)**: `SecurityBoundaryViolation` on residual secrets; fail-closed persistence blocks.
+- **Client Transport (`opsgenome/cli/client.py`)**: POSIX 0600 Unix domain socket with silent non-blocking fallback on terminal client.
+- **AI Grounding Gate (`opsgenome/ai/grounding.py`)**: Independent publication verification; ungrounded claims stripped with `gate_enforcement_rate` tracking.
+- **Automated Healthcheck**: Run `opsgenome doctor` for live diagnostic inspection of all layers.
+

@@ -189,6 +189,15 @@ class StateSnapshot(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class RankedHypothesis(BaseModel):
+    rank: int = 1
+    hypothesis: str
+    candidate_event_ids: list[str] = Field(default_factory=list)
+    supporting_evidence: list[str] = Field(default_factory=list)
+    confidence: float = 0.5  # 0.0 - 1.0 calibrated probability
+    distinguishing_factor: str = ""  # What telemetry, test, or probe would isolate this cause
+
+
 class CausalChain(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
     incident_id: str
@@ -201,6 +210,8 @@ class CausalChain(BaseModel):
     recovery_time_seconds: int = 0
     evidence_items: list[Evidence] = Field(default_factory=list)
     why_why_not: WhyWhyNot | None = None
+    ranked_hypotheses: list[RankedHypothesis] = Field(default_factory=list)
+    disambiguation_required: bool = False
 
 
 class CausalNode(BaseModel):
@@ -285,6 +296,8 @@ class Runbook(BaseModel):
     why_why_not: WhyWhyNot | None = None
     evidence_citations: list[str] = Field(default_factory=list)
     confidence_display: str = "Not enough data yet (N=1)"
+    ranked_hypotheses: list[RankedHypothesis] = Field(default_factory=list)
+    disambiguation_required: bool = False
 
     def model_post_init(self, __context: Any) -> None:
         if self.confidence_score and not self.earned_confidence_score:

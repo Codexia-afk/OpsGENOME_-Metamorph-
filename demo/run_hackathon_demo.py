@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from tabulate import tabulate
+from demo.simulate_ambiguous_incident import run_ambiguous_incident_simulation
 from opsgenome.ai.runbook_generator import RunbookGenerator
 from opsgenome.prevention.bus_factor import BusFactorAnalyzer
 from opsgenome.prevention.drift import DriftDetectionEngine
@@ -258,6 +259,13 @@ def run_demo():
             print(f"    {GREEN}✔ Why:{RESET} {wr}")
         for wna in runbook1.why_why_not.why_not_alternatives:
             print(f"    {RED}✘ Why Not:{RESET} {wna['action']} ({wna['reason_rejected'][:50]}...)")
+
+    # -------------------------------------------------------------------------
+    # STEP 2B: AMBIGUOUS MULTI-CAUSE INCIDENT — AI HYPOTHESIS DISAMBIGUATION
+    # -------------------------------------------------------------------------
+    print_header("STEP 2B: AMBIGUOUS MULTI-CAUSE INCIDENT — THE REMOVAL TEST")
+    print(f"{YELLOW}Proving genuine AI irreplaceability: what happens when operational evidence genuinely conflicts?{RESET}")
+    run_ambiguous_incident_simulation(db_path=db.db_path)
 
     # -------------------------------------------------------------------------
     # STEP 3 & 4: INCIDENT 2 — RECURRENCE DETECTED AT INTAKE (<50ms)

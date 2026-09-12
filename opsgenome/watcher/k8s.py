@@ -124,6 +124,20 @@ class K8sStateCollector:
                 f"Kubernetes cluster unreachable at configured endpoint: {conn_err}"
             ) from conn_err
 
+    def check_health(self) -> dict[str, Any]:
+        """Diagnoses connection and namespace health without raising uncaught exceptions."""
+        try:
+            self.connect()
+            return {"healthy": True, "namespace": self.namespace, "error": None}
+        except K8sNamespaceNotFoundError as e:
+            return {"healthy": False, "namespace": self.namespace, "error": f"Namespace not found: {e}"}
+        except K8sPermissionDeniedError as e:
+            return {"healthy": False, "namespace": self.namespace, "error": f"Permission denied (RBAC): {e}"}
+        except K8sClusterUnreachableError as e:
+            return {"healthy": False, "namespace": self.namespace, "error": f"Cluster unreachable: {e}"}
+        except Exception as e:
+            return {"healthy": False, "namespace": self.namespace, "error": f"Unexpected error: {e}"}
+
     def capture_raw_state(self) -> tuple[dict[str, Any], bool, str]:
         """Polls live Kubernetes API for pod statuses, container states, and ConfigMap metadata."""
         if not self._core_api:
@@ -448,3 +462,8 @@ class K8sStateCollector:
             status_summary=after.status_summary,
             timestamp=datetime.now(timezone.utc),
         )
+
+
+# Backward compatibility alias
+K8sCollector = K8sStateCollector
+

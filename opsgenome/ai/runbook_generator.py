@@ -28,6 +28,7 @@ from opsgenome.storage.models import (
     Evidence,
     Incident,
     KnowledgeStatus,
+    RankedHypothesis,
     RecurrenceSignature,
     Runbook,
     RunbookStep,
@@ -95,6 +96,56 @@ class RunbookGenerator:
         # runbook narration path.
         chain_outcome = chain_dict.get("outcome", "inconclusive")
         persisted_outcome = "success" if chain_outcome == "resolved" else "inconclusive"
+        ranked_hypotheses_data = [
+            RankedHypothesis(**h) for h in chain_dict.get("ranked_hypotheses", [])
+        ]
+        disamb_req = chain_dict.get("disambiguation_required", False)
+
+        # Wire Why/Why Not decision model if disambiguation occurred
+        wwn = extracted["why_why_not"]
+        if ranked_hypotheses_data and len(ranked_hypotheses_data) > 1:
+            top_h = ranked_hypotheses_data[0]
+            why_reasons = top_h.supporting_evidence or [f"Top ranked hypothesis: {top_h.hypothesis}"]
+            alternatives = []
+            for alt in ranked_hypotheses_data[1:]:
+                alternatives.append({
+                    "action": f"Hypothesis (Rank {alt.rank}): {alt.hypothesis}",
+                    "reason_rejected": f"Lower confidence ({int(alt.confidence * 100)}%). Distinguishing factor: {alt.distinguishing_factor}",
+                    "evidence": "; ".join(alt.supporting_evidence) if alt.supporting_evidence else "Alternative correlation",
+                    "confidence": alt.confidence,
+                })
+            for d in extracted["dead_ends"]:
+                alternatives.append({
+                    "action": d.command,
+                    "reason_rejected": d.why_it_failed,
+                    "evidence": d.evidence_observed,
+                })
+            wwn = WhyWhyNot(
+                incident_id=incident.id,
+                recommended_action=f"Rank 1 ({int(top_h.confidence * 100)}%): {top_h.hypothesis}",
+                why_reasons=why_reasons,
+                why_not_alternatives=alternatives,
+                evidence_ids=chain_dict.get("evidence_event_ids", []),
+                confidence=top_h.confidence,
+            )
+        elif disamb_req and not ranked_hypotheses_data:
+            # Deterministic layer refused false certainty on ambiguous candidates
+            candidate_cmds = [
+                ev.raw_command for ev in high_signal_events
+                if ev.exit_code == 0 and SignalFilter.is_mutation(ev.raw_command or ev.command_redacted or "")
+            ]
+            wwn = WhyWhyNot(
+                incident_id=incident.id,
+                recommended_action="Ambiguous: Manual triage required (multiple candidate mutations detected without deterministic winner)",
+                why_reasons=["Multiple successful mutations occurred prior to recovery without isolated delta"],
+                why_not_alternatives=[
+                    {"action": c, "reason_rejected": "Ambiguous candidate without deterministic winner", "evidence": "Exit code 0 with shared recovery window"}
+                    for c in candidate_cmds
+                ],
+                evidence_ids=chain_dict.get("evidence_event_ids", []),
+                confidence=0.50,
+            )
+
         causal_chain = CausalChain(
             id=chain_id,
             incident_id=incident.id,
@@ -106,7 +157,9 @@ class RunbookGenerator:
             confidence_score=0.0,
             recovery_time_seconds=max(0, recovery_time),
             evidence_items=extracted["evidence_items"],
-            why_why_not=extracted["why_why_not"],
+            why_why_not=wwn,
+            ranked_hypotheses=ranked_hypotheses_data,
+            disambiguation_required=disamb_req,
         )
         self.db.save_causal_chain(causal_chain)
 
@@ -204,9 +257,11 @@ class RunbookGenerator:
             known_dead_ends=dead_ends,
             negative_knowledge_dead_ends=dead_ends,
             verification_commands=[s.command for s in runbook_steps if "curl" in s.command or "get" in s.command or "status" in s.command],
-            why_why_not=extracted["why_why_not"],
+            why_why_not=wwn,
             evidence_citations=[e.id for e in extracted["evidence_items"]],
             confidence_display=conf_display,
+            ranked_hypotheses=ranked_hypotheses_data,
+            disambiguation_required=disamb_req,
         )
         self.db.save_runbook(runbook)
 
