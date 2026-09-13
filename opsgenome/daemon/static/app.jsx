@@ -407,8 +407,12 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
               {/* Drawer Header */}
               <div className="flex items-center justify-between pb-4 border-b border-[var(--border-line)]">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-md bg-[#10B981] flex items-center justify-center font-mono font-bold text-black text-xs tracking-wider shadow-sm">
-                    OG
+                  <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-[var(--surface-card)] border border-[var(--border-line)] shadow-sm">
+                    <img
+                      src={theme === "dark" ? "/static/assets/logo_dark.png" : "/static/assets/logo_light.png"}
+                      alt="OpsGenome Logo"
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                   <div>
                     <div className="font-semibold text-sm tracking-tight text-[var(--text-main)]">OpsGenome</div>
@@ -546,8 +550,12 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
 
             {/* Brand Monogram & Name */}
             <div className="flex items-center gap-2.5 cursor-pointer group" onClick={() => setActiveTab("overview")}>
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center font-mono font-extrabold text-black text-xs tracking-wider shadow-sm ring-1 ring-emerald-300/40 group-hover:scale-105 transition-transform">
-                OG
+              <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center bg-[var(--surface-card)] border border-[var(--border-line)] shadow-xs ring-1 ring-emerald-500/20 group-hover:scale-105 transition-transform">
+                <img
+                  src={theme === "dark" ? "/static/assets/logo_dark.png" : "/static/assets/logo_light.png"}
+                  alt="OpsGenome Logo"
+                  className="w-full h-full object-cover"
+                />
               </div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-[15px] tracking-tight text-[var(--text-main)] group-hover:text-emerald-400 transition-colors">
