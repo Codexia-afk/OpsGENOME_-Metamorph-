@@ -126,6 +126,42 @@ When microservice incidents cascade across heterogeneous stacks (e.g. Python bac
 
 ---
 
+## 🏆 National Hackathon Judge Demo Playbook & Command Reference
+
+> **Full Detailed Presentation Guide:** For the step-by-step judge voiceover, 6-cluster hero demonstration, physical disk log inspections, and chaos failure injection, see **[`HACKATHON_DEMO_PLAYBOOK.md`](HACKATHON_DEMO_PLAYBOOK.md)**.
+
+### 📌 Quick Command Cheat Sheet
+
+| Demonstration Target | Exact Shell Command | What Judges See |
+| :--- | :--- | :--- |
+| **Start Web UI & REST API** | `python3 run_frontend.py` | Boots Web Console & Swagger REST API on `http://localhost:8000` |
+| **Setup CLI Alias** | `alias opsgenome="./bin/opsgenome"` | Links `opsgenome` command directly in active terminal |
+| **System Diagnostics & AI Status** | `opsgenome doctor` | Proves IPC socket, SQLite WAL, K8s reachability, and Gemini/Groq AI status |
+| **Hero Multi-Agent Swarm (0.003s)** | `python3 demo/run_multiagent_demo.py` | 6 agents diagnose Python, Java, Node, & K8s concurrently with Kahn's DAG |
+| **Detailed Inter-Agent Dialogue** | `opsgenome multi-agent analyze --demo` | Inter-agent messages, Security Sentinel check, and atomic diffs |
+| **Physical Disk File Analysis** | `opsgenome multi-agent analyze --file demo-projects/multi-stack-incident/services/payment-engine/main.py` | Dynamically analyzes real physical microservice files on disk |
+| **Kubernetes & Docker Cluster Audit** | `opsgenome multi-agent cluster-audit` | Audits 5 simultaneous cluster failures with copyable CLI & YAML fixes |
+| **Normal Transactional Commit** | `opsgenome multi-agent chaos-test` | Verifies code compilation and commits multi-stack transaction |
+| **Chaos Automatic Rollback** | `opsgenome multi-agent chaos-test --fail-verify` | Injects syntax bug to prove instant automatic rollback from `.bak` |
+| **Autonomous AI Code Fixer** | `opsgenome fix demo/fibonacci_broken.py --auto-approve` | Distills stack trace and applies verified AI fix with live re-test |
+| **Large-Scale Log Benchmark (1M lines)** | `pytest opsgenome/tests/test_scale_benchmark.py -v` | 1M log lines triaged in 14.7s with zero heap growth and constant prompt |
+| **Full Automated Test Suite** | `pytest opsgenome/tests/ -v` | **128 passed, 0 failures, 100% pass rate** |
+
+### 🔌 Running the OpsGenome REST API
+OpsGenome provides a complete REST API for headless CI/CD pipelines and external dashboards:
+- **Start Unified Server:** `python3 run_frontend.py` *(Serves on `http://localhost:8000`)*
+- **Start Standalone Daemon:** `python3 -m opsgenome.cli.main daemon --host 127.0.0.1 --port 8765`
+- **Interactive Swagger Documentation:** Open **`http://localhost:8000/docs`**
+- **Test Health Endpoint:** `curl http://localhost:8000/api/v1/health`
+- **Trigger Swarm Analysis via API:**
+  ```bash
+  curl -X POST http://localhost:8000/api/v1/multi-agent/analyze \
+    -H "Content-Type: application/json" \
+    -d '{"use_demo_incident": true}'
+  ```
+
+---
+
 ## 🚀 Live Judge Demo Playbook (2.5 Minutes)
 
 > **The 2.5-Minute Pitch Thesis:**  
