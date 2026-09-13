@@ -448,7 +448,7 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
                           <div className="text-xs font-medium tracking-tight truncate flex items-center gap-2">
                             <span className={isActive ? "text-emerald-400 font-semibold" : ""}>{item.label}</span>
                             {item.badge && (
-                              <span className={`eng-badge ${item.badge === "P1 ACTIVE" ? "eng-badge-rose animate-pulse" : "eng-badge-emerald"} text-[9px] py-0.2 px-1 font-mono`}>
+                              <span className="eng-badge eng-badge-emerald text-[9px] py-0.2 px-1 font-mono">
                                 {item.badge}
                               </span>
                             )}
@@ -554,11 +554,11 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
               </div>
             </div>
 
-            {/* Live Operational Status Tag */}
+            {/* Live Operational Status Tag: Normal green color, no blinking */}
             <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-[var(--border-line)]">
               {activeIncidentData?.incident ? (
-                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30 animate-pulse">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   P1 ACTIVE
                 </span>
               ) : (
@@ -594,9 +594,6 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
             >
               <Icons.Terminal />
               <span>Incident Studio</span>
-              {activeIncidentData?.incident && (
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-              )}
             </button>
 
             <button
@@ -643,12 +640,9 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
 
           {/* Right Controls: Telemetry Pill + Tools + Primary Action */}
           <div className="flex items-center gap-2.5 sm:gap-3">
-            {/* Live Telemetry Verification Pill (Clean single-line nowrap) */}
+            {/* Live Telemetry Verification Pill (Clean single-line nowrap, no blinking) */}
             <div className="hidden 2xl:flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/25 bg-emerald-500/5 text-[11px] font-mono text-[var(--text-sub)] whitespace-nowrap shadow-xs">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
               <span className="text-emerald-400 font-semibold">128/128 Verified</span>
               <span className="text-[var(--text-muted)]">•</span>
               <span>SLA &lt; 50ms</span>
@@ -676,32 +670,23 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
               <Icons.GitHub />
             </a>
 
-            {/* Primary Action Button (Single, high-contrast, context-aware) */}
-            {activeIncidentData?.incident ? (
-              <button
-                onClick={() => setActiveTab("studio")}
-                className="bg-rose-500 hover:bg-rose-600 text-white font-semibold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer font-mono tracking-tight animate-pulse"
-              >
-                <Icons.AlertTriangle />
-                <span>War Room Live</span>
-              </button>
-            ) : activeTab === "multiagent" ? (
-              <button
-                onClick={() => setActiveTab("studio")}
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer font-mono tracking-tight ring-1 ring-emerald-300/40"
-              >
-                <Icons.Terminal />
-                <span>Incident Studio</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setActiveTab("multiagent")}
-                className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer font-mono tracking-tight ring-1 ring-emerald-300/40"
-              >
-                <Icons.Cpu />
-                <span>Launch Swarm</span>
-              </button>
-            )}
+            {/* Primary Action Button (Normal, clean clickable button - no red War Room Live button, no blinking) */}
+            <button
+              onClick={() => setActiveTab(activeTab === "studio" ? "multiagent" : "studio")}
+              className="bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs px-4 py-2 rounded-lg shadow-xs transition-all flex items-center gap-1.5 cursor-pointer font-sans tracking-tight"
+            >
+              {activeTab === "studio" ? (
+                <>
+                  <Icons.Cpu />
+                  <span>Launch Swarm</span>
+                </>
+              ) : (
+                <>
+                  <Icons.Terminal />
+                  <span>Launch Studio</span>
+                </>
+              )}
+            </button>
 
           </div>
         </div>
@@ -1415,7 +1400,7 @@ function StudioView({ activeData, incidentsList, onSelectIncident, onOpenRunbook
       <div className="eng-panel p-6 border-rose-500/40 bg-rose-500/[0.02] space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
             <span className="eng-badge eng-badge-rose text-[10px]">
               {activeInc ? activeInc.severity : "P1"} CRITICAL
             </span>
@@ -2317,7 +2302,7 @@ function MultiAgentStudioView() {
                 Multi-Agent Swarm Orchestration Studio
               </h1>
               <span className="eng-badge eng-badge-emerald text-[10px] font-mono py-0.5 px-2 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 SWARM ACTIVE • 6 AGENTS
               </span>
             </div>
@@ -2392,7 +2377,7 @@ function MultiAgentStudioView() {
         </div>
 
         <div className="flex items-center gap-2 text-[11px] text-[var(--text-sub)]">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
           <span>Localhost Live Terminal Stream</span>
         </div>
       </div>
