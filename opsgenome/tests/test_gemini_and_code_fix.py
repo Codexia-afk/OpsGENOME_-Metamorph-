@@ -31,21 +31,33 @@ def test_ai_provider_auto_selection(monkeypatch):
     """Verify provider auto-selection based on environment variables."""
     # Case 1: GEMINI_API_KEY present -> selects Gemini
     monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     engine_gemini = AIReasoningEngine(provider="auto")
     assert engine_gemini.provider == "gemini"
     assert "gemini" in engine_gemini.model
 
-    # Case 2: ANTHROPIC_API_KEY present (no Gemini) -> selects Anthropic
+    # Case 2: GROQ_API_KEY present (no Gemini) -> selects Groq
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    engine_groq = AIReasoningEngine(provider="auto")
+    assert engine_groq.provider == "groq"
+    assert "llama" in engine_groq.model
+
+    # Case 3: ANTHROPIC_API_KEY present (no Gemini, no Groq) -> selects Anthropic
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-claude-key")
     engine_claude = AIReasoningEngine(provider="auto")
     assert engine_claude.provider == "anthropic"
     assert "claude" in engine_claude.model
 
-    # Case 3: No keys -> selects Offline Heuristic
+    # Case 4: No keys -> selects Offline Heuristic
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPSGENOME_LOCAL_LLM", raising=False)
     engine_offline = AIReasoningEngine(provider="auto")
     assert engine_offline.provider == "offline"
     assert engine_offline.model == "deterministic-offline"

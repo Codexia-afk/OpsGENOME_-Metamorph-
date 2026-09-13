@@ -22,8 +22,16 @@ dist/
 htmlcov/
 .mypy_cache/
 
-# Virtual environments
+# Environment variables and secrets (NEVER COMMIT)
 .env
+.env.*
+*.env
+.env.local
+.env.production
+.env.development
+!.env.example
+
+# Virtual environments
 .venv
 env/
 venv/

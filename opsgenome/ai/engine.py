@@ -462,6 +462,7 @@ Original Source Code:
             ],
             "generationConfig": {
                 "temperature": 0.1,
+                "maxOutputTokens": 2048,
                 "responseMimeType": "application/json"
             }
         }
@@ -669,6 +670,7 @@ Original Source Code:
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0.1,
+            "max_tokens": 2048,
         }
         with httpx.Client(timeout=25.0) as client:
             resp = client.post(endpoint_url, json=payload, headers=headers)
