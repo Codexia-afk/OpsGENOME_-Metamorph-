@@ -36,10 +36,11 @@ htmlcov/
 env/
 venv/
 
-# OS and IDE files
+# OS, IDE and backup files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 *.swp
 *~
+*.bak
