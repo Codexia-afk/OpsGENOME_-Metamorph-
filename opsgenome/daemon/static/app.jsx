@@ -375,7 +375,7 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
     { id: "investigation", label: "Deep Investigation", desc: "Deterministic event replay & causal graph", icon: Icons.GitBranch, badge: incidentsList.length > 0 ? `${incidentsList.length} INCIDENTS` : null },
     { id: "multiagent", label: "Multi-Agent Studio", desc: "Cross-stack swarm & K8s/Docker cluster auditor", icon: Icons.Cpu, badge: "SWARM ACTIVE" },
     { id: "architecture", label: "Architecture", desc: "Dual-engine pipeline & POSIX 0600 boundary", icon: Icons.Network, badge: "POSIX 0600" },
-    { id: "verification", label: "Verification & Proofs", desc: "124 passing unit tests & formal assertions", icon: Icons.Shield, badge: "124 PASSED" },
+    { id: "verification", label: "Verification & Proofs", desc: "128 passing unit tests & formal assertions", icon: Icons.Shield, badge: "128 PASSED" },
     { id: "search", label: "Diagnostic Search", desc: "Zero-overhead hybrid BM25 & semantic search", icon: Icons.Search, badge: null },
   ];
 
@@ -510,7 +510,7 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
               </a>
               <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-muted)]">
                 <span>POSIX 0600 • WAL Mode</span>
-                <span className="text-emerald-400">124 Tests Passed</span>
+                <span className="text-emerald-400">128 Tests Passed</span>
               </div>
             </div>
 
@@ -521,64 +521,143 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
       {/* -------------------------------------------------------------
           TOP NAVIGATION BAR (Section 4)
           ------------------------------------------------------------- */}
-      <header className="sticky top-0 z-40 w-full border-b border-[var(--border-line)] bg-[var(--bg-canvas)]/80 backdrop-blur-md">
-        <div className="max-w-[1240px] mx-auto px-4 sm:px-6 h-[68px] flex items-center justify-between gap-3">
+      {/* -------------------------------------------------------------
+          TOP NAVIGATION BAR (High-End Enterprise SRE Command Console)
+          ------------------------------------------------------------- */}
+      <header className="sticky top-0 z-40 w-full border-b border-[var(--border-line)] bg-[var(--bg-canvas)]/85 backdrop-blur-md transition-colors">
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           
-          {/* Left Corner: Hamburger Menu Button + Brand Logo + Active Tab Breadcrumb */}
+          {/* Left: Brand Monogram, Title, Version & Status Indicator */}
           <div className="flex items-center gap-3">
-            {/* Hamburger Button */}
+            {/* Hamburger Button (Drawer toggle for mobile / deep tools) */}
             <button
               onClick={() => setIsMenuOpen(true)}
-              className="p-2 -ml-1 rounded-md border border-[var(--border-line)] bg-[var(--surface-card)] text-[var(--text-main)] hover:text-emerald-400 hover:border-emerald-500/40 hover:bg-[var(--surface-hover)] transition-all flex items-center justify-center cursor-pointer shadow-sm group"
-              title="Open Navigation Menu"
+              className="p-1.5 rounded-lg border border-[var(--border-line)] bg-[var(--surface-card)] text-[var(--text-sub)] hover:text-[var(--text-main)] hover:border-emerald-500/40 hover:bg-[var(--surface-hover)] transition-all flex items-center justify-center cursor-pointer shadow-xs group"
+              title="Open Navigation Drawer"
               aria-label="Toggle navigation menu"
             >
               <Icons.Menu />
             </button>
 
             {/* Brand Monogram & Name */}
-            <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => setActiveTab("overview")}>
-              <div className="w-8 h-8 rounded-md bg-[#10B981] flex items-center justify-center font-mono font-bold text-black text-xs tracking-wider shadow-sm">
+            <div className="flex items-center gap-2.5 cursor-pointer group" onClick={() => setActiveTab("overview")}>
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 flex items-center justify-center font-mono font-extrabold text-black text-xs tracking-wider shadow-sm ring-1 ring-emerald-300/40 group-hover:scale-105 transition-transform">
                 OG
               </div>
-              <div className="flex items-baseline gap-2">
-                <span className="font-semibold text-base tracking-tight text-[var(--text-main)]">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-[15px] tracking-tight text-[var(--text-main)] group-hover:text-emerald-400 transition-colors">
                   OpsGenome
                 </span>
-                <span className="hidden sm:inline-block eng-badge eng-badge-emerald text-[9px] py-0.5 px-1.5 font-mono">
-                  v2.4-GROUNDED
+                <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+                  v2.5
                 </span>
               </div>
             </div>
 
-            {/* Current View Breadcrumb */}
-            <div className="hidden md:flex items-center gap-2 pl-3 border-l border-[var(--border-line)]">
-              <span className="text-xs font-mono text-[var(--text-sub)]">/</span>
-              <span className="text-xs font-mono font-medium text-emerald-400 uppercase tracking-wide">
-                {activeTab === "studio" ? "Live Studio" : activeTab === "multiagent" ? "Multi-Agent Studio" : activeTab}
-              </span>
-              {activeIncidentData?.incident && (
-                <span className="eng-badge eng-badge-rose text-[9px] py-0.5 px-1.5 font-mono animate-pulse">
+            {/* Live Operational Status Tag */}
+            <div className="hidden lg:flex items-center gap-2 pl-3 border-l border-[var(--border-line)]">
+              {activeIncidentData?.incident ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                   P1 ACTIVE
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono text-emerald-400/90 bg-emerald-500/10 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  CLUSTER OPTIMAL
                 </span>
               )}
             </div>
           </div>
 
-          {/* Center: System Status Summary */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full border border-[var(--border-line)] bg-[var(--surface-card)] text-[11px] font-mono text-[var(--text-sub)]">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>124/124 Tests Verified</span>
-            <span className="text-[var(--border-line)]">•</span>
-            <span>Deterministic Grounding SLA &lt; 50ms</span>
-          </div>
+          {/* Center: Sleek Segmented View Switcher */}
+          <nav className="hidden md:flex items-center gap-1 p-1 rounded-lg border border-[var(--border-line)] bg-[var(--surface-card)]/70 text-xs font-medium backdrop-blur-xs">
+            <button
+              onClick={() => setActiveTab("overview")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "overview"
+                  ? "bg-emerald-500 text-black font-semibold shadow-xs"
+                  : "text-[var(--text-sub)] hover:text-[var(--text-main)] hover:bg-[var(--surface-hover)]"
+              }`}
+            >
+              <Icons.Layers />
+              <span>Overview</span>
+            </button>
+            
+            <button
+              onClick={() => setActiveTab("studio")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "studio"
+                  ? "bg-emerald-500 text-black font-semibold shadow-xs"
+                  : "text-[var(--text-sub)] hover:text-[var(--text-main)] hover:bg-[var(--surface-hover)]"
+              }`}
+            >
+              <Icons.Terminal />
+              <span>Incident Studio</span>
+              {activeIncidentData?.incident && (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+              )}
+            </button>
 
-          {/* Right Controls: Exactly matches screenshot: Moon / GitHub / Launch Studio */}
-          <div className="flex items-center gap-3 sm:gap-4">
+            <button
+              onClick={() => setActiveTab("multiagent")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "multiagent"
+                  ? "bg-emerald-500 text-black font-semibold shadow-xs"
+                  : "text-[var(--text-sub)] hover:text-[var(--text-main)] hover:bg-[var(--surface-hover)]"
+              }`}
+            >
+              <Icons.Cpu />
+              <span>Swarm Studio</span>
+              <span className={`text-[9px] font-mono px-1 py-0.2 rounded ${
+                activeTab === "multiagent" ? "bg-black/25 text-black font-bold" : "bg-emerald-500/20 text-emerald-400"
+              }`}>
+                6 AGENTS
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("knowledge")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "knowledge"
+                  ? "bg-emerald-500 text-black font-semibold shadow-xs"
+                  : "text-[var(--text-sub)] hover:text-[var(--text-main)] hover:bg-[var(--surface-hover)]"
+              }`}
+            >
+              <Icons.BookOpen />
+              <span>Runbooks</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab("verification")}
+              className={`px-3 py-1.5 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "verification"
+                  ? "bg-emerald-500 text-black font-semibold shadow-xs"
+                  : "text-[var(--text-sub)] hover:text-[var(--text-main)] hover:bg-[var(--surface-hover)]"
+              }`}
+            >
+              <Icons.Shield />
+              <span>Proofs</span>
+            </button>
+          </nav>
+
+          {/* Right Controls: Telemetry Pill + Tools + Primary Action */}
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            {/* Live Telemetry Verification Pill (Clean single-line nowrap) */}
+            <div className="hidden 2xl:flex items-center gap-2 px-3 py-1 rounded-full border border-emerald-500/25 bg-emerald-500/5 text-[11px] font-mono text-[var(--text-sub)] whitespace-nowrap shadow-xs">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-emerald-400 font-semibold">128/128 Verified</span>
+              <span className="text-[var(--text-muted)]">•</span>
+              <span>SLA &lt; 50ms</span>
+            </div>
+
             {/* Theme Toggle (Moon / Sun) */}
             <button
               onClick={toggleTheme}
-              className="p-1.5 rounded-md text-[var(--text-sub)] hover:text-[var(--text-main)] transition-colors cursor-pointer flex items-center justify-center"
+              className="p-2 rounded-lg border border-[var(--border-line)] bg-[var(--surface-card)] text-[var(--text-sub)] hover:text-[var(--text-main)] hover:border-emerald-500/40 hover:bg-[var(--surface-hover)] transition-all cursor-pointer flex items-center justify-center shadow-xs"
               title={`Switch to ${theme === "dark" ? "Light" : "Dark"} mode`}
               aria-label="Toggle theme"
             >
@@ -590,33 +669,39 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
               href="https://github.com/Codexia-afk/OpsGENOME_-Metamorph-"
               target="_blank"
               rel="noopener noreferrer"
-              className="p-1.5 rounded-md text-[var(--text-sub)] hover:text-[var(--text-main)] transition-colors cursor-pointer flex items-center justify-center"
+              className="p-2 rounded-lg border border-[var(--border-line)] bg-[var(--surface-card)] text-[var(--text-sub)] hover:text-[var(--text-main)] hover:border-emerald-500/40 hover:bg-[var(--surface-hover)] transition-all cursor-pointer flex items-center justify-center shadow-xs"
               title="GitHub Repository"
               aria-label="GitHub Repository"
             >
               <Icons.GitHub />
             </a>
 
-            {/* Multi-Agent Swarm Button */}
-            <button
-              onClick={() => setActiveTab("multiagent")}
-              className={`font-semibold text-xs px-3.5 py-2 rounded-md transition-all shadow-sm cursor-pointer flex items-center gap-1.5 font-mono ${
-                activeTab === "multiagent"
-                  ? "bg-emerald-500 text-black font-bold"
-                  : "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30"
-              }`}
-            >
-              <span>🤖</span>
-              <span className="hidden sm:inline">Swarm Studio</span>
-            </button>
-
-            {/* Launch Studio Solid Green Button */}
-            <button
-              onClick={() => setActiveTab("studio")}
-              className="bg-[#008e52] hover:bg-[#007a46] dark:bg-[#10B981] dark:hover:bg-[#059669] text-black font-semibold text-sm px-4 py-2 rounded-md transition-all shadow-sm cursor-pointer flex items-center justify-center tracking-tight"
-            >
-              Launch Studio
-            </button>
+            {/* Primary Action Button (Single, high-contrast, context-aware) */}
+            {activeIncidentData?.incident ? (
+              <button
+                onClick={() => setActiveTab("studio")}
+                className="bg-rose-500 hover:bg-rose-600 text-white font-semibold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer font-mono tracking-tight animate-pulse"
+              >
+                <Icons.AlertTriangle />
+                <span>War Room Live</span>
+              </button>
+            ) : activeTab === "multiagent" ? (
+              <button
+                onClick={() => setActiveTab("studio")}
+                className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer font-mono tracking-tight ring-1 ring-emerald-300/40"
+              >
+                <Icons.Terminal />
+                <span>Incident Studio</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setActiveTab("multiagent")}
+                className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-black font-semibold text-xs px-3.5 py-2 rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer font-mono tracking-tight ring-1 ring-emerald-300/40"
+              >
+                <Icons.Cpu />
+                <span>Launch Swarm</span>
+              </button>
+            )}
 
           </div>
         </div>
@@ -739,7 +824,7 @@ ${(rb.known_dead_ends || rb.negative_knowledge_dead_ends || []).map(d => `- ❌ 
             <span className="font-mono">OpsGenome Engine • Single-Node POSIX 0600 Socket & SQLite WAL Boundary</span>
           </div>
           <div className="flex items-center gap-6 font-mono text-[11px]">
-            <span>124/124 Tests Passing</span>
+            <span>128/128 Tests Passing</span>
             <span>Zero Unredacted Serialization</span>
             <span>MIT License</span>
           </div>
@@ -886,7 +971,7 @@ function OverviewView({
 
           <div className="eng-badge eng-badge-neutral text-xs font-mono py-1.5 px-3">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>124/124 TESTS PASSING</span>
+            <span>128/128 TESTS PASSING</span>
           </div>
         </div>
       </section>
@@ -986,7 +1071,7 @@ function OverviewView({
             VERIFIED TEST SUITE
           </div>
           <div className="text-4xl sm:text-5xl font-semibold tracking-tight text-[var(--text-main)] font-mono">
-            124
+            128
           </div>
           <p className="text-xs text-[var(--text-sub)] leading-relaxed">
             0 regressions; strict gate enforcement rate blocking 100% of hallucinations.
