@@ -92,8 +92,14 @@ class PythonSpecialistAgent(BaseSpecialistAgent):
                 explanation = "Injected missing base cases `n <= 0 -> 0` and `n == 1 -> 1`."
         elif "nameerror" in exc_type.lower() or "not defined" in clean_err.lower():
             root_cause = "Referencing undefined variable or constant."
-            match = re.search(r"name '(\w+)' is not defined", clean_err)
+            match = re.search(r"name ['\"]?(\w+)['\"]? is not defined", clean_err)
             var_name = match.group(1) if match else "fee_rate"
+            if var_name not in code_content:
+                code_vars = re.findall(r"\b([a-zA-Z_]\w*)\b", code_content)
+                for candidate in ["fee_rate", "rate", "tax_rate", "multiplier"]:
+                    if candidate in code_vars:
+                        var_name = candidate
+                        break
             if var_name in code_content and f"{var_name} =" not in code_content:
                 if "def " in code_content:
                     fixed_code = re.sub(
@@ -105,6 +111,13 @@ class PythonSpecialistAgent(BaseSpecialistAgent):
                 else:
                     fixed_code = f"{var_name} = 0.02  # Default rate fallback\n" + code_content
                 explanation = f"Declared default fallback `{var_name} = 0.02` before reference to resolve NameError."
+        elif "zerodivisionerror" in exc_type.lower() or "division by zero" in clean_err.lower():
+            root_cause = "Division by zero without zero-divisor guard."
+            div_match = re.search(r"(\w+)\s*/\s*(\w+)", code_content)
+            if div_match:
+                num, denom = div_match.group(1), div_match.group(2)
+                fixed_code = code_content.replace(f"{num} / {denom}", f"({num} / {denom} if {denom} != 0 else 0.0)")
+                explanation = f"Guarded division `{num} / {denom}` against zero denominator."
 
         # If heuristics didn't modify code, call AI engine
         if fixed_code == code_content and self.ai_engine:
@@ -166,24 +179,41 @@ class JavaSpecialistAgent(BaseSpecialistAgent):
         # Deterministic NullPointerException patch
         if "nullpointerexception" in exc_type.lower() or "cannot invoke" in clean_err.lower() or "NullPointerException" in code_content:
             root_cause = "Account or payload object dereferenced before null check in payment pipeline."
-            if "acc.getBalance()" in code_content and "if (acc == null)" not in code_content:
-                fixed_code = code_content.replace(
-                    "return acc.getBalance();",
-                    "if (acc == null) return 0.0;\n        return acc.getBalance();",
-                )
-                explanation = "Injected defensive null check guard `if (acc == null) return 0.0;` to prevent NullPointerException."
-            elif "user.getId()" in code_content and "if (user == null)" not in code_content:
-                fixed_code = code_content.replace(
-                    "return user.getId();",
-                    "if (user == null) return \"anonymous\";\n        return user.getId();",
-                )
-                explanation = "Injected defensive null check guard `if (user == null)`."
-            elif "amount.doubleValue()" in code_content and "if (amount == null)" not in code_content:
-                fixed_code = code_content.replace(
-                    "return amount.doubleValue() * 1.05;",
-                    "if (amount == null) return 0.0;\n        return amount.doubleValue() * 1.05;",
-                )
-                explanation = "Injected defensive null check guard `if (amount == null) return 0.0;` to prevent NullPointerException."
+            npe_match = re.search(r"because ['\"]?(\w+)['\"]? is null", clean_err)
+            var_candidate = npe_match.group(1) if npe_match else None
+            if not var_candidate:
+                deref_match = re.search(r"(\w+)\.(?:doubleValue|getBalance|getId)\(\)", code_content)
+                if deref_match:
+                    var_candidate = deref_match.group(1)
+
+            if var_candidate and f"if ({var_candidate} == null)" not in code_content:
+                ret_match = re.search(rf"(\s*)(return\s+.*{var_candidate}\..*;)", code_content)
+                if ret_match:
+                    indent, ret_stmt = ret_match.group(1), ret_match.group(2)
+                    fallback = '""' if "getId" in ret_stmt else "0.0"
+                    guard = f"{indent}if ({var_candidate} == null) return {fallback};\n"
+                    fixed_code = code_content.replace(ret_stmt, f"{guard}{indent}{ret_stmt}")
+                    explanation = f"Injected defensive null check guard `if ({var_candidate} == null) return {fallback};` to prevent NullPointerException."
+
+            if fixed_code == code_content:
+                if "acc.getBalance()" in code_content and "if (acc == null)" not in code_content:
+                    fixed_code = code_content.replace(
+                        "return acc.getBalance();",
+                        "if (acc == null) return 0.0;\n        return acc.getBalance();",
+                    )
+                    explanation = "Injected defensive null check guard `if (acc == null) return 0.0;` to prevent NullPointerException."
+                elif "user.getId()" in code_content and "if (user == null)" not in code_content:
+                    fixed_code = code_content.replace(
+                        "return user.getId();",
+                        "if (user == null) return \"anonymous\";\n        return user.getId();",
+                    )
+                    explanation = "Injected defensive null check guard `if (user == null)`."
+                elif "amount.doubleValue()" in code_content and "if (amount == null)" not in code_content:
+                    fixed_code = code_content.replace(
+                        "return amount.doubleValue() * 1.05;",
+                        "if (amount == null) return 0.0;\n        return amount.doubleValue() * 1.05;",
+                    )
+                    explanation = "Injected defensive null check guard `if (amount == null) return 0.0;` to prevent NullPointerException."
 
         # Fallback to AI code fix
         if fixed_code == code_content and self.ai_engine:
@@ -243,7 +273,7 @@ class NodeSpecialistAgent(BaseSpecialistAgent):
         explanation = ""
 
         # Deterministic fix for token / header / payload lookup
-        if "cannot read properties of undefined" in clean_err.lower() or "typeerror" in exc_type.lower():
+        if "cannot read properties of undefined" in clean_err.lower() or "typeerror" in exc_type.lower() or "promise" in clean_err.lower():
             if "req.headers.authorization" in code_content:
                 fixed_code = code_content.replace(
                     "const token = req.headers.authorization.split(' ')[1];",
@@ -256,13 +286,20 @@ class NodeSpecialistAgent(BaseSpecialistAgent):
                     "return data?.user?.id ?? null;",
                 )
                 explanation = "Applied optional chaining `data?.user?.id ?? null`."
-            elif "resp.json()" in code_content and ("await resp.json()" not in code_content or "promise" in clean_err.lower()):
-                fixed_code = code_content.replace(
-                    "const data = resp.json();",
-                    "const data = await resp.json();",
-                )
-                root_cause = "Missing await on asynchronous fetch Response.json() Promise."
-                explanation = "Added missing `await` to `resp.json()` to resolve pending Promise before property access."
+            elif ".json()" in code_content and ("await" not in code_content or "promise" in clean_err.lower()):
+                json_match = re.search(r"const\s+(\w+)\s*=\s*(\w+)\.json\(\);", code_content)
+                if json_match and f"await {json_match.group(2)}.json()" not in code_content:
+                    v_name, r_name = json_match.group(1), json_match.group(2)
+                    fixed_code = code_content.replace(f"const {v_name} = {r_name}.json();", f"const {v_name} = await {r_name}.json();")
+                    root_cause = f"Missing await on asynchronous {r_name}.json() Promise."
+                    explanation = f"Added missing `await` to `{r_name}.json()` to resolve pending Promise before property access."
+                elif "resp.json()" in code_content:
+                    fixed_code = code_content.replace(
+                        "const data = resp.json();",
+                        "const data = await resp.json();",
+                    )
+                    root_cause = "Missing await on asynchronous fetch Response.json() Promise."
+                    explanation = "Added missing `await` to `resp.json()` to resolve pending Promise before property access."
 
         # Fallback to AI
         if fixed_code == code_content and self.ai_engine:
@@ -316,9 +353,21 @@ class ClusterSpecialistAgent(BaseSpecialistAgent):
         explanation = ""
 
         # Check for dangerously low memory limits causing OOMKilled in Kubernetes YAML
-        if "oomkilled" in clean_err.lower() or "crashloopbackoff" in clean_err.lower() or "memory: 64mi" in code_content.lower() or "memory: 128mi" in code_content.lower():
-            root_cause = "Container memory limit 64Mi/128Mi causes Linux cgroup OOMKilled (Exit Code 137) under traffic spikes."
-            if "memory: \"64Mi\"" in code_content:
+        mem_match = re.search(r"memory:\s*[\"']?(\d+)(Mi|M|Gi|G)[\"']?", code_content, flags=re.IGNORECASE)
+        cur_limit_val = int(mem_match.group(1)) if mem_match else None
+        cur_limit_str = f"{mem_match.group(1)}{mem_match.group(2)}" if mem_match else "64Mi"
+
+        if "oomkilled" in clean_err.lower() or "crashloopbackoff" in clean_err.lower() or (cur_limit_val and cur_limit_val < 512) or "memory: 64mi" in code_content.lower():
+            root_cause = f"Container memory limit `{cur_limit_str}` causes Linux cgroup OOMKilled (Exit Code 137) under traffic spikes."
+            if mem_match and cur_limit_val and cur_limit_val < 512:
+                fixed_code = re.sub(
+                    r"memory:\s*[\"']?" + re.escape(cur_limit_str) + r"[\"']?",
+                    "memory: 512Mi",
+                    code_content,
+                    count=1,
+                )
+                explanation = f"Increased container memory limit from `{cur_limit_str}` to 512Mi to prevent cgroup OOMKilled."
+            elif "memory: \"64Mi\"" in code_content:
                 fixed_code = code_content.replace("memory: \"64Mi\"", "memory: \"512Mi\"")
                 explanation = "Increased container memory limit from 64Mi to 512Mi to prevent cgroup OOMKilled."
             elif "memory: 64Mi" in code_content:
@@ -329,7 +378,15 @@ class ClusterSpecialistAgent(BaseSpecialistAgent):
                 explanation = "Increased container memory limit from 128Mi to 512Mi."
 
         # Check for service selector mismatches
-        if "selector" in code_content and ("v1" in code_content and "v2" in clean_err):
+        sel_match = re.search(r"selector:\s*\n\s+app:\s*([a-zA-Z0-9_-]+)", code_content)
+        lbl_in_err = re.search(r"app=([a-zA-Z0-9_-]+)", clean_err)
+        if sel_match and lbl_in_err and sel_match.group(1) != lbl_in_err.group(1):
+            old_lbl = sel_match.group(1)
+            new_lbl = lbl_in_err.group(1)
+            root_cause = f"Service selector `{old_lbl}` does not match target pod label `{new_lbl}`."
+            fixed_code = code_content.replace(f"app: {old_lbl}", f"app: {new_lbl}")
+            explanation = f"Updated Service selector from `app: {old_lbl}` to `app: {new_lbl}`."
+        elif "selector" in code_content and ("v1" in code_content and "v2" in clean_err):
             root_cause = "Service selector points to deprecated pod label, dropping all inbound traffic."
             fixed_code = code_content.replace("app: web-v1", "app: web-v2")
             explanation = "Updated Service label selector from `app: web-v1` to `app: web-v2` to restore traffic routing."

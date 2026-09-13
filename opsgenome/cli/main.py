@@ -1324,22 +1324,33 @@ def multi_agent_group() -> None:
 @click.argument("files", nargs=-1, type=click.Path(exists=True))
 @click.option("--file", "-f", "file_options", multiple=True, type=click.Path(exists=True), help="Path to file to analyze (can be passed multiple times).")
 @click.option("--demo", is_flag=True, help="Run cross-stack demo incident (Python, Node, Java, K8s).")
-def cmd_multi_agent_analyze(files: tuple[str, ...], file_options: tuple[str, ...], demo: bool) -> None:
+@click.option("--reset", is_flag=True, help="Reset demo incident files to default benchmark state.")
+def cmd_multi_agent_analyze(files: tuple[str, ...], file_options: tuple[str, ...], demo: bool, reset: bool = False) -> None:
     """Analyze multiple heterogeneous files across stacks with agent swarm."""
     orchestrator = LeadSREOrchestrator()
 
     combined_files = list(files) + list(file_options)
 
     if demo or not combined_files:
-        # Restore canonical demo files & load targets from demo scenarios engine
-        reset_demo_incident_files()
+        if reset:
+            reset_demo_incident_files()
         targets = get_demo_cross_stack_targets(read_from_disk_if_available=True)
     else:
+        from opsgenome.agents.demo_scenarios import extract_error_from_incident_log
         targets = []
         for f in combined_files:
             p = Path(f)
             code = p.read_text(encoding="utf-8", errors="replace")
-            targets.append((str(p), code, f"Error detected in {p.name}"))
+            err_ctx = extract_error_from_incident_log(str(p), default_err="")
+            if not err_ctx:
+                if p.suffix == ".py":
+                    try:
+                        import ast
+                        ast.parse(code, filename=str(p))
+                    except SyntaxError as se:
+                        err_ctx = f"SyntaxError: {se.msg} at line {se.lineno}"
+                err_ctx = err_ctx or f"Error detected in {p.name}"
+            targets.append((str(p), code, err_ctx))
 
 
     print(f"\n{BOLD}{CYAN}🤖 OPSGENOME MULTI-AGENT SWARM: CROSS-STACK INCIDENT RESOLUTION{RESET}")
