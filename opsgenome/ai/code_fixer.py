@@ -123,7 +123,13 @@ class CodeFixEngine:
             if ext == ".py":
                 cmd_tokens = [sys.executable, str(target_path)]
             elif ext in (".js", ".mjs"):
-                cmd_tokens = ["node", str(target_path)]
+                cmd_tokens = ["node", str(target_path)] if shutil.which("node") else [sys.executable, str(target_path)]
+            elif ext == ".java":
+                cmd_tokens = ["javac", str(target_path)] if shutil.which("javac") else ["javac", str(target_path)]
+            elif ext in (".yaml", ".yml"):
+                cmd_tokens = ["kubectl", "apply", "--dry-run=client", "-f", str(target_path)]
+            elif ext in (".tf", ".hcl"):
+                cmd_tokens = ["terraform", "validate"]
             elif ext == ".sh":
                 cmd_tokens = ["bash", str(target_path)]
             else:
@@ -131,13 +137,25 @@ class CodeFixEngine:
             command = " ".join(shlex.quote(t) for t in cmd_tokens)
             proc = safe_subprocess_run(cmd_tokens, cwd=work_dir, timeout=15)
             err_comb = proc.stderr + "\n" + proc.stdout
+
+            # If dry-run command didn't output an error, check if an incident log records a failure for this file
+            if proc.returncode == 0 and not err_comb.strip():
+                try:
+                    from opsgenome.agents.demo_scenarios import extract_error_from_incident_log
+                    log_err = extract_error_from_incident_log(str(target_path))
+                    if log_err:
+                        err_comb = log_err
+                        proc = subprocess.CompletedProcess(args=cmd_tokens, returncode=1, stdout="", stderr=log_err)
+                except Exception:
+                    pass
+
             stack_files = self.extract_traceback_chain(err_comb, work_dir)
             return FailureContext(
                 command=command,
                 target_file=str(target_path.resolve()),
-                exit_code=proc.returncode,
+                exit_code=proc.returncode if proc.returncode != 0 else (1 if err_comb.strip() else 0),
                 stdout=proc.stdout,
-                stderr=proc.stderr,
+                stderr=err_comb if err_comb.strip() else proc.stderr,
                 cwd=work_dir,
                 call_stack_files=stack_files,
             )

@@ -58,6 +58,7 @@ class SpecialistFinding:
     explanation: str = ""
     dependencies: list[str] = field(default_factory=list)
     agent_name: str = ""
+    engine_source: str = "Deterministic Heuristic (0 tokens)"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -78,6 +79,7 @@ class SpecialistFinding:
             explanation=d.get("explanation", ""),
             dependencies=list(d.get("dependencies", [])),
             agent_name=d.get("agent_name", ""),
+            engine_source=d.get("engine_source", "Deterministic Heuristic (0 tokens)"),
         )
 
 

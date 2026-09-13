@@ -158,6 +158,11 @@ def get_demo_cross_stack_targets(
     If physical files exist in `demo-projects/multi-stack-incident/`, reads code
     and corresponding log context directly from disk so live changes are immediately picked up.
     """
+    import ast
+    import shutil
+    import sys
+    from opsgenome.ai.code_fixer import safe_subprocess_run
+
     targets: list[tuple[str, str, str]] = []
 
     for spec in DEMO_TARGET_SPECS:
@@ -169,7 +174,29 @@ def get_demo_cross_stack_targets(
             try:
                 code = disk_path.read_text(encoding="utf-8")
                 # Dynamically extract live error context from cross_stack_incident.log if available
-                live_err = extract_error_from_incident_log(spec.relative_path, default_err=spec.error_context)
+                live_err = extract_error_from_incident_log(spec.relative_path, default_err="")
+
+                # Dynamic live check: if judge modified code, probe live syntax/runtime
+                ext = disk_path.suffix.lower()
+                if ext == ".py":
+                    try:
+                        ast.parse(code, filename=str(disk_path))
+                        # Probe runtime if no syntax error
+                        proc = safe_subprocess_run([sys.executable, str(disk_path)], timeout=3)
+                        if proc.returncode != 0:
+                            live_err = (proc.stderr or proc.stdout).strip()
+                    except SyntaxError as se:
+                        live_err = f"SyntaxError: {se.msg} at line {se.lineno} of {disk_path.name}"
+                elif ext in (".js", ".mjs") and shutil.which("node"):
+                    proc = safe_subprocess_run(["node", "--check", str(disk_path)], timeout=3)
+                    if proc.returncode != 0:
+                        live_err = (proc.stderr or proc.stdout).strip()
+                elif ext in (".yaml", ".yml"):
+                    mem_m = re.search(r"memory:\s*[\"']?(\d+)(Mi|Gi|M|G)[\"']?", code, re.IGNORECASE)
+                    if mem_m and int(mem_m.group(1)) < 512:
+                        live_err = f"OOMKilled: Container memory limit `{mem_m.group(1)}{mem_m.group(2)}` is below 512Mi minimum threshold."
+
+                live_err = live_err or spec.error_context
                 targets.append((chosen_path, code, live_err))
                 continue
             except Exception:

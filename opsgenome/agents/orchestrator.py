@@ -121,16 +121,17 @@ class LeadSREOrchestrator:
                     )
                 )
 
-            elif ext in (".yaml", ".yml") or "dockerfile" in fname:
+            elif ext in (".yaml", ".yml", ".tf", ".hcl") or "dockerfile" in fname:
                 finding = self.cluster_agent.diagnose_manifest(file_path, code, err)
                 findings.append(finding)
+                stack_desc = "Terraform HCL" if ext in (".tf", ".hcl") else "Kubernetes/Docker"
                 messages.append(
                     AgentMessage(
                         sender=self.cluster_agent.name,
                         recipient="Lead SRE Orchestrator",
                         role=AgentRole.CLUSTER_SPECIALIST.value,
                         message_type=MessageType.DIAGNOSTIC_HYPOTHESIS.value,
-                        content=f"Diagnosed Kubernetes/Docker configuration failure in `{p.name}`. Root Cause: {finding.root_cause}. Formulated manifest resource limit update.",
+                        content=f"Diagnosed {stack_desc} configuration failure in `{p.name}`. Root Cause: {finding.root_cause}. Formulated infrastructure remediation update.",
                         metadata={"file": p.name, "diff_size": len(finding.proposed_diff)},
                     )
                 )

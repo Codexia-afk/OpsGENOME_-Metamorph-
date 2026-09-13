@@ -119,6 +119,7 @@ class PythonSpecialistAgent(BaseSpecialistAgent):
                 fixed_code = code_content.replace(f"{num} / {denom}", f"({num} / {denom} if {denom} != 0 else 0.0)")
                 explanation = f"Guarded division `{num} / {denom}` against zero denominator."
 
+        ai_invoked = False
         # If heuristics didn't modify code, call AI engine
         if fixed_code == code_content and self.ai_engine:
             try:
@@ -129,13 +130,21 @@ class PythonSpecialistAgent(BaseSpecialistAgent):
                     error_output=clean_err,
                     exit_code=1,
                 )
-                fixed_code = ai_res.get("fixed_code", code_content)
-                root_cause = ai_res.get("root_cause", root_cause)
-                explanation = ai_res.get("explanation", explanation)
+                if ai_res.get("fixed_code") and ai_res["fixed_code"] != code_content:
+                    fixed_code = ai_res.get("fixed_code", code_content)
+                    root_cause = ai_res.get("root_cause", root_cause)
+                    explanation = ai_res.get("explanation", explanation)
+                    ai_invoked = True
             except Exception:
                 pass
 
         diff = self.create_diff(code_content, fixed_code, Path(file_path).name) if fixed_code != code_content else ""
+
+        engine_source = "Deterministic AST Heuristic (0 tokens)"
+        if ai_invoked:
+            prov = getattr(self.ai_engine, "provider", "gemini").upper()
+            mod = getattr(self.ai_engine, "model", "")
+            engine_source = f"AI Engine ({prov} • {mod})"
 
         return SpecialistFinding(
             target_file=file_path,
@@ -150,6 +159,7 @@ class PythonSpecialistAgent(BaseSpecialistAgent):
             confidence=0.98 if diff else 0.85,
             explanation=explanation or "Applied Python exception safety patch.",
             agent_name=self.name,
+            engine_source=engine_source,
         )
 
 
@@ -215,6 +225,7 @@ class JavaSpecialistAgent(BaseSpecialistAgent):
                     )
                     explanation = "Injected defensive null check guard `if (amount == null) return 0.0;` to prevent NullPointerException."
 
+        ai_invoked = False
         # Fallback to AI code fix
         if fixed_code == code_content and self.ai_engine:
             try:
@@ -225,13 +236,21 @@ class JavaSpecialistAgent(BaseSpecialistAgent):
                     error_output=clean_err,
                     exit_code=1,
                 )
-                fixed_code = ai_res.get("fixed_code", code_content)
-                root_cause = ai_res.get("root_cause", root_cause)
-                explanation = ai_res.get("explanation", explanation)
+                if ai_res.get("fixed_code") and ai_res["fixed_code"] != code_content:
+                    fixed_code = ai_res.get("fixed_code", code_content)
+                    root_cause = ai_res.get("root_cause", root_cause)
+                    explanation = ai_res.get("explanation", explanation)
+                    ai_invoked = True
             except Exception:
                 pass
 
         diff = self.create_diff(code_content, fixed_code, Path(file_path).name) if fixed_code != code_content else ""
+
+        engine_source = "Deterministic AST Heuristic (0 tokens)"
+        if ai_invoked:
+            prov = getattr(self.ai_engine, "provider", "gemini").upper()
+            mod = getattr(self.ai_engine, "model", "")
+            engine_source = f"AI Engine ({prov} • {mod})"
 
         return SpecialistFinding(
             target_file=file_path,
@@ -246,6 +265,7 @@ class JavaSpecialistAgent(BaseSpecialistAgent):
             confidence=0.96 if diff else 0.85,
             explanation=explanation or "Applied Java null-safety defensive guard.",
             agent_name=self.name,
+            engine_source=engine_source,
         )
 
 
@@ -301,6 +321,7 @@ class NodeSpecialistAgent(BaseSpecialistAgent):
                     root_cause = "Missing await on asynchronous fetch Response.json() Promise."
                     explanation = "Added missing `await` to `resp.json()` to resolve pending Promise before property access."
 
+        ai_invoked = False
         # Fallback to AI
         if fixed_code == code_content and self.ai_engine:
             try:
@@ -311,13 +332,21 @@ class NodeSpecialistAgent(BaseSpecialistAgent):
                     error_output=clean_err,
                     exit_code=1,
                 )
-                fixed_code = ai_res.get("fixed_code", code_content)
-                root_cause = ai_res.get("root_cause", root_cause)
-                explanation = ai_res.get("explanation", explanation)
+                if ai_res.get("fixed_code") and ai_res["fixed_code"] != code_content:
+                    fixed_code = ai_res.get("fixed_code", code_content)
+                    root_cause = ai_res.get("root_cause", root_cause)
+                    explanation = ai_res.get("explanation", explanation)
+                    ai_invoked = True
             except Exception:
                 pass
 
         diff = self.create_diff(code_content, fixed_code, Path(file_path).name) if fixed_code != code_content else ""
+
+        engine_source = "Deterministic AST Heuristic (0 tokens)"
+        if ai_invoked:
+            prov = getattr(self.ai_engine, "provider", "gemini").upper()
+            mod = getattr(self.ai_engine, "model", "")
+            engine_source = f"AI Engine ({prov} • {mod})"
 
         return SpecialistFinding(
             target_file=file_path,
@@ -332,6 +361,7 @@ class NodeSpecialistAgent(BaseSpecialistAgent):
             confidence=0.97 if diff else 0.85,
             explanation=explanation or "Applied optional chaining and defensive property guard.",
             agent_name=self.name,
+            engine_source=engine_source,
         )
 
 
@@ -391,21 +421,65 @@ class ClusterSpecialistAgent(BaseSpecialistAgent):
             fixed_code = code_content.replace("app: web-v1", "app: web-v2")
             explanation = "Updated Service label selector from `app: web-v1` to `app: web-v2` to restore traffic routing."
 
+        # Check for Terraform configuration failure if applicable
+        stack_name = "kubernetes"
+        ext = Path(file_path).suffix.lower()
+        if ext in (".tf", ".hcl"):
+            stack_name = "terraform"
+            from opsgenome.signal.parsers.terraform_parser import TerraformErrorParser
+            tf_parsed = TerraformErrorParser().parse(clean_err or code_content)
+            if tf_parsed:
+                root_cause = f"Terraform configuration diagnostic: {tf_parsed.get('exception_type', 'TerraformError')} - {tf_parsed.get('message', '')}"
+            if "undeclared input variable" in clean_err.lower() or "no value for required variable" in clean_err.lower():
+                var_m = re.search(r'variable ["\']?(\w+)["\']?', clean_err)
+                if var_m:
+                    missing_v = var_m.group(1)
+                    if f'variable "{missing_v}"' not in code_content:
+                        fixed_code = f'variable "{missing_v}" {{\n  type        = string\n  default     = "staging"\n  description = "Auto-declared fallback"\n}}\n\n' + code_content
+                        explanation = f'Declared missing input variable `{missing_v}` with default fallback.'
+
+        ai_invoked = False
+        # If heuristics didn't modify manifest, call AI engine fallback
+        if fixed_code == code_content and self.ai_engine:
+            try:
+                cmd_hint = f"terraform validate" if stack_name == "terraform" else f"kubectl apply --dry-run=client -f {Path(file_path).name}"
+                ai_res = self.ai_engine.diagnose_and_fix_code(
+                    filename=Path(file_path).name,
+                    code_content=code_content,
+                    command=cmd_hint,
+                    error_output=clean_err,
+                    exit_code=1,
+                )
+                if ai_res.get("fixed_code") and ai_res["fixed_code"] != code_content:
+                    fixed_code = ai_res.get("fixed_code", code_content)
+                    root_cause = ai_res.get("root_cause", root_cause)
+                    explanation = ai_res.get("explanation", explanation)
+                    ai_invoked = True
+            except Exception:
+                pass
+
         diff = self.create_diff(code_content, fixed_code, Path(file_path).name) if fixed_code != code_content else ""
+
+        engine_source = "Deterministic AST Heuristic (0 tokens)"
+        if ai_invoked:
+            prov = getattr(self.ai_engine, "provider", "gemini").upper()
+            mod = getattr(self.ai_engine, "model", "")
+            engine_source = f"AI Engine ({prov} • {mod})"
 
         return SpecialistFinding(
             target_file=file_path,
-            stack="kubernetes",
-            exception_type="OOMKilled / CrashLoopBackOff",
-            error_message="Exit Code 137 / Selector Mismatch",
+            stack=stack_name,
+            exception_type="TerraformConfigurationError" if stack_name == "terraform" else "OOMKilled / CrashLoopBackOff",
+            error_message="Configuration Diagnostic" if stack_name == "terraform" else "Exit Code 137 / Selector Mismatch",
             line_number=None,
             root_cause=root_cause,
             proposed_diff=diff,
             original_code=code_content,
             fixed_code=fixed_code,
             confidence=0.99 if diff else 0.88,
-            explanation=explanation or "Applied Kubernetes resource specification patch.",
+            explanation=explanation or ("Applied Terraform configuration fix." if stack_name == "terraform" else "Applied Kubernetes resource specification patch."),
             agent_name=self.name,
+            engine_source=engine_source,
         )
 
 

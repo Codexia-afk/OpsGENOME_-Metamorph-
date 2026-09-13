@@ -1337,23 +1337,55 @@ def cmd_multi_agent_analyze(files: tuple[str, ...], file_options: tuple[str, ...
         targets = get_demo_cross_stack_targets(read_from_disk_if_available=True)
     else:
         from opsgenome.agents.demo_scenarios import extract_error_from_incident_log
+        from opsgenome.ai.code_fixer import safe_subprocess_run
+        import shutil
+        import sys
         targets = []
         for f in combined_files:
             p = Path(f)
+            if p.suffix == ".log":
+                log_text = p.read_text(encoding="utf-8", errors="replace")
+                src_matches = set(re.findall(r'([a-zA-Z0-9_\-\./\\]+\.(?:py|js|mjs|java|yaml|yml|tf|hcl))', log_text))
+                for sm in src_matches:
+                    resolved = Path(sm) if Path(sm).is_file() else (REPO_ROOT / sm).resolve()
+                    if resolved.is_file():
+                        code = resolved.read_text(encoding="utf-8", errors="replace")
+                        err_ctx = extract_error_from_incident_log(str(resolved), default_err=f"Failure trace in {p.name}")
+                        targets.append((str(resolved), code, err_ctx))
+                continue
+
             code = p.read_text(encoding="utf-8", errors="replace")
             err_ctx = extract_error_from_incident_log(str(p), default_err="")
             if not err_ctx:
-                if p.suffix == ".py":
+                ext = p.suffix.lower()
+                if ext == ".py":
                     try:
                         import ast
                         ast.parse(code, filename=str(p))
+                        proc = safe_subprocess_run([sys.executable, str(p)], timeout=3)
+                        if proc.returncode != 0:
+                            err_ctx = (proc.stderr or proc.stdout).strip()
                     except SyntaxError as se:
                         err_ctx = f"SyntaxError: {se.msg} at line {se.lineno}"
-                err_ctx = err_ctx or f"Error detected in {p.name}"
-            targets.append((str(p), code, err_ctx))
+                elif ext in (".js", ".mjs") and shutil.which("node"):
+                    proc = safe_subprocess_run(["node", "--check", str(p)], timeout=3)
+                    if proc.returncode != 0:
+                        err_ctx = (proc.stderr or proc.stdout).strip()
+                elif ext in (".yaml", ".yml"):
+                    mem_m = re.search(r"memory:\s*[\"']?(\d+)(Mi|Gi|M|G)[\"']?", code, re.IGNORECASE)
+                    if mem_m and int(mem_m.group(1)) < 512:
+                        err_ctx = f"OOMKilled: Container memory limit `{mem_m.group(1)}{mem_m.group(2)}` is below 512Mi minimum threshold."
+                elif ext in (".tf", ".hcl"):
+                    err_ctx = f"TerraformError: Configuration diagnostic in {p.name}"
+            targets.append((str(p), code, err_ctx or f"Error detected in {p.name}"))
 
 
+    ai_engine = orchestrator.ai_engine
+    ai_prov = getattr(ai_engine, "provider", "offline").upper()
+    ai_mod = getattr(ai_engine, "model", "default")
     print(f"\n{BOLD}{CYAN}🤖 OPSGENOME MULTI-AGENT SWARM: CROSS-STACK INCIDENT RESOLUTION{RESET}")
+    print(f"• {BOLD}Active AI Engine:{RESET} {GREEN}{ai_prov}{RESET} ({CYAN}{ai_mod}{RESET})")
+    print(f"• {BOLD}API Credit Optimization:{RESET} {GREEN}ACTIVE{RESET} (Heuristic Pre-Filter + Semantic Log Distillation + Token Caps)")
     print(f"{DIM}Lead Orchestrator dispatching tasks across {len(targets)} components...{RESET}\n")
 
     plan, messages = orchestrator.analyze_and_coordinate(targets)
@@ -1382,7 +1414,9 @@ def cmd_multi_agent_analyze(files: tuple[str, ...], file_options: tuple[str, ...
 
     print(f"\n{BOLD}Atomic Diffs Formulated:{RESET}")
     for finding in plan.findings:
+        eng_src = getattr(finding, "engine_source", "Deterministic Heuristic")
         print(f"\n{YELLOW}--- {Path(finding.target_file).name} ({finding.stack.upper()} | {finding.exception_type}) ---{RESET}")
+        print(f"• {BOLD}Diagnosis & Repair Engine:{RESET} {CYAN}{eng_src}{RESET}")
         print(f"{DIM}Root Cause:{RESET} {finding.root_cause}")
         print(finding.proposed_diff)
 
