@@ -2350,26 +2350,6 @@ function MultiAgentStudioView() {
           </div>
         </div>
 
-        {/* Swarm Specialist Roster */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-4">
-          {[
-            { role: "LEAD ORCHESTRATOR", name: "Lead SRE Orchestrator", stack: "Topology DAG", badge: "emerald", icon: "👑" },
-            { role: "PYTHON SPECIALIST", name: "Python Specialist", stack: "Python / FastAPI", badge: "cyan", icon: "🐍" },
-            { role: "JAVA SPECIALIST", name: "JVM Specialist", stack: "Java / Spring Boot", badge: "amber", icon: "☕" },
-            { role: "NODE SPECIALIST", name: "Node.js Specialist", stack: "JS / Promises", badge: "emerald", icon: "⚡" },
-            { role: "CLUSTER SPECIALIST", name: "Cluster Specialist", stack: "K8s / Docker", badge: "cyan", icon: "☸" },
-            { role: "SECURITY SENTINEL", name: "Security Sentinel", stack: "Fail-Closed Redactor", badge: "rose", icon: "🛡" },
-          ].map((agent, i) => (
-            <div key={i} className="p-3 rounded-lg border border-[var(--border-line)] bg-[var(--surface-card)] flex flex-col justify-between">
-              <div className="flex items-center justify-between text-[9px] font-mono text-[var(--text-sub)] mb-1">
-                <span>{agent.icon} {agent.role}</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-              </div>
-              <div className="text-xs font-semibold text-[var(--text-main)] truncate">{agent.name}</div>
-              <div className="text-[10px] font-mono text-[var(--text-muted)] mt-0.5">{agent.stack}</div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* 1.5 INTERFACE MODE SWITCHER: Visual Cards vs Live Terminal Console vs Raw Incident Logs */}
