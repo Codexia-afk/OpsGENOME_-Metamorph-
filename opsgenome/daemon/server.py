@@ -7,7 +7,7 @@ WebSocket Live War Room feeds, Static Web Dashboard, and intelligence graph synt
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
@@ -41,10 +41,13 @@ from opsgenome.storage.db import DatabaseManager
 from opsgenome.storage.graph import IntelligenceGraphBuilder
 from opsgenome.storage.models import (
     CapturedEvent,
+    Event,
+    EventClassification,
     Evidence,
     Incident,
     IncidentStatus,
     StateSnapshot,
+    TriggerSource,
     TriggerType,
 )
 
@@ -870,6 +873,195 @@ def create_app(db: DatabaseManager | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Incident not found")
         events = db_manager.get_events_for_incident(incident_id)
         return shadow_copilot.evaluate_live_state(inc, events)
+
+    @app.post("/api/v1/flight-sim/simulate")
+    async def simulate_flight_scenario(scenario: str = "payments") -> dict[str, Any]:
+        """Simulates live operational failure scenarios (K8s CrashLoop, cgroup OOM, or Multi-Stack)."""
+        scenario_clean = scenario.lower().strip()
+        now = datetime.now(timezone.utc)
+        import time
+
+        if scenario_clean in ("oom", "memory"):
+            inc_id = f"inc-sim-oom-{int(time.time())}"
+            inc = Incident(
+                id=inc_id,
+                title="Linux cgroup OOMKilled (Exit Code 137) Memory Saturation",
+                service="payments-service",
+                environment="production",
+                severity="P1",
+                trigger_source=TriggerSource.WEBHOOK,
+                status=IncidentStatus.OPEN,
+                started_at=now,
+                symptoms=[
+                    "Linux cgroup OOMKilled (Exit Code 137)",
+                    "Container memory hard limit 64Mi saturated",
+                    "Pod payments-service-oom-9f CrashLoopBackOff",
+                    "p99 latency degradation across transactions",
+                ],
+                root_cause_category="memory_exhaustion",
+                summary="P1 Recurring Memory Outage: Container cgroup exceeded 64Mi hard ceiling under transaction surge.",
+            )
+            db_manager.create_incident(inc)
+
+            ev1 = Event(
+                id=f"ev-{inc.id}-01",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=90),
+                raw_command="kubectl describe pod payments-service-oom -n payments",
+                exit_code=0,
+                stdout_snippet="State: Terminated\n  Reason: OOMKilled\n  Exit Code: 137\n  Container: payments-worker",
+                signal_weight=0.95,
+                classification=EventClassification.INVESTIGATION,
+                tool_category="kubectl",
+            )
+            ev2 = Event(
+                id=f"ev-{inc.id}-02",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=60),
+                raw_command="kubectl get deployment payments-service -n payments -o jsonpath='{.spec.template.spec.containers[0].resources.limits.memory}'",
+                exit_code=0,
+                stdout_snippet="64Mi",
+                signal_weight=0.90,
+                classification=EventClassification.INVESTIGATION,
+                tool_category="kubectl",
+            )
+            ev3 = Event(
+                id=f"ev-{inc.id}-03",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=30),
+                raw_command="kubectl set resources deployment payments-service --limits=memory=512Mi -n payments",
+                exit_code=0,
+                stdout_snippet="deployment.apps/payments-service resource requirements updated to 512Mi",
+                signal_weight=0.95,
+                classification=EventClassification.FIX,
+                tool_category="kubectl",
+            )
+            for ev in (ev1, ev2, ev3):
+                db_manager.save_event(ev)
+
+        elif scenario_clean in ("multistack", "cross-stack", "swarm"):
+            inc_id = f"inc-sim-multi-{int(time.time())}"
+            inc = Incident(
+                id=inc_id,
+                title="Cross-Stack Outage: Python FastAPI, Java Billing, Node Gateway & K8s",
+                service="cross-stack-cluster",
+                environment="production",
+                severity="P1",
+                trigger_source=TriggerSource.MANUAL,
+                status=IncidentStatus.OPEN,
+                started_at=now,
+                symptoms=[
+                    "Python KeyError in billing_calculator.py:24",
+                    "Java NullPointerException in PaymentProcessor.java:5",
+                    "Node.js TypeError: Cannot read properties of undefined in auth.js:14",
+                    "Kubernetes deployment memory limit 64Mi OOMKilled",
+                ],
+                root_cause_category="cross_stack_cascade",
+                summary="P1 Cascading Multi-Stack Incident across 4 runtime layers.",
+            )
+            db_manager.create_incident(inc)
+
+            ev1 = Event(
+                id=f"ev-{inc.id}-01",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=60),
+                raw_command="python3 demo/run_multiagent_demo.py",
+                exit_code=0,
+                stdout_snippet="Multi-agent swarm dispatched 6 specialist agents across Python, Java, Node.js, and K8s.",
+                signal_weight=0.95,
+                classification=EventClassification.INVESTIGATION,
+                tool_category="system",
+            )
+            db_manager.save_event(ev1)
+
+        else:
+            inc_id = f"inc-sim-pay-{int(time.time())}"
+            inc = Incident(
+                id=inc_id,
+                title="Payments Service 504 Gateway Timeouts & Pod CrashLoop",
+                service="payments-service",
+                environment="production",
+                severity="P1",
+                trigger_source=TriggerSource.WEBHOOK,
+                status=IncidentStatus.OPEN,
+                started_at=now,
+                symptoms=[
+                    "504 Gateway Timeout across /api/v1/charge",
+                    "p99 latency spiked to 14.2s",
+                    "Postgres pool saturated (50/50 active connections)",
+                    "Pod payments-service-c89b CrashLoopBackOff",
+                ],
+                root_cause_category="configmap_corruption",
+                summary="P1 Critical: payments-service degraded following ConfigMap revision 104; DB connection pool exhausted.",
+            )
+            db_manager.create_incident(inc)
+
+            ev1 = Event(
+                id=f"ev-{inc.id}-01",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=90),
+                raw_command="kubectl get pods -n payments -l app=payments-service",
+                exit_code=0,
+                stdout_snippet="payments-service-789f   0/1   CrashLoopBackOff   4 (2m ago)   6m",
+                signal_weight=0.90,
+                classification=EventClassification.INVESTIGATION,
+                tool_category="kubectl",
+            )
+            ev2 = Event(
+                id=f"ev-{inc.id}-02",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=60),
+                raw_command="kubectl logs deployment/payments-service -n payments --tail=50",
+                exit_code=0,
+                stdout_snippet="ERROR DBPoolTimeoutException: Connection pool exhausted (active=50, max=50)\nCRITICAL HTTP 504 Gateway Timeout on POST /api/v1/charge (latency: 14210ms)",
+                signal_weight=0.95,
+                classification=EventClassification.INVESTIGATION,
+                tool_category="kubectl",
+            )
+            ev3 = Event(
+                id=f"ev-{inc.id}-03",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=30),
+                raw_command="kubectl rollout restart deployment/payments-service -n payments",
+                exit_code=1,
+                stderr_snippet="error: deployment restarted but pods remain in CrashLoopBackOff (DB pool config invalid)",
+                signal_weight=0.80,
+                classification=EventClassification.DEAD_END,
+                tool_category="kubectl",
+            )
+            ev4 = Event(
+                id=f"ev-{inc.id}-04",
+                incident_id=inc.id,
+                timestamp=now - timedelta(seconds=10),
+                raw_command="kubectl rollout undo deployment/payments-service -n payments",
+                exit_code=0,
+                stdout_snippet="deployment.apps/payments-service rolled back to revision 103 (1/1 Running healthy)",
+                signal_weight=0.98,
+                classification=EventClassification.FIX,
+                tool_category="kubectl",
+            )
+            for ev in (ev1, ev2, ev3, ev4):
+                db_manager.save_event(ev)
+
+        recurrence_match = recurrence_engine.check_recurrence(inc)
+        events = db_manager.get_events_for_incident(inc.id)
+        shadow_eval = shadow_copilot.evaluate_live_state(inc, events)
+
+        await broadcast({
+            "type": "INCIDENT_TRIGGERED",
+            "incident": inc.model_dump(),
+            "recurrence_match": recurrence_match,
+            "shadow_eval": shadow_eval,
+        })
+
+        return {
+            "status": "ok",
+            "scenario": scenario_clean,
+            "incident": inc.model_dump(),
+            "events": [e.model_dump() for e in events],
+            "recurrence_match": recurrence_match,
+            "shadow_eval": shadow_eval,
+        }
 
     # --- Multi-Agent Swarm Orchestration ---
 

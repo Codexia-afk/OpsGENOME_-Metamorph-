@@ -245,22 +245,24 @@ function App() {
       setActiveIncidentData(activeRes);
 
       const listRes = await fetch(`${API_BASE}/api/v1/incidents`).then(r => r.json());
-      setIncidentsList(listRes.incidents || []);
-      if (!selectedIncidentId && listRes.incidents && listRes.incidents.length > 0) {
-        setSelectedIncidentId(listRes.incidents[0].id);
+      const incList = Array.isArray(listRes) ? listRes : (listRes?.incidents || []);
+      setIncidentsList(incList);
+      if (incList.length > 0) {
+        setSelectedIncidentId(prev => prev || incList[0].id);
       }
 
       const runbooksRes = await fetch(`${API_BASE}/api/v1/runbooks`).then(r => r.json());
-      setRunbooks(runbooksRes.runbooks || []);
-      if (!selectedRunbook && runbooksRes.runbooks && runbooksRes.runbooks.length > 0) {
-        setSelectedRunbook(runbooksRes.runbooks[0]);
+      const rbList = Array.isArray(runbooksRes) ? runbooksRes : (runbooksRes?.runbooks || []);
+      setRunbooks(rbList);
+      if (rbList.length > 0) {
+        setSelectedRunbook(prev => prev || rbList[0]);
       }
 
       const driftRes = await fetch(`${API_BASE}/api/v1/drift`).then(r => r.json());
-      setDriftReports(driftRes.drift_reports || []);
+      setDriftReports(Array.isArray(driftRes) ? driftRes : (driftRes?.drift_reports || []));
 
       const busRes = await fetch(`${API_BASE}/api/v1/bus-factor`).then(r => r.json());
-      setBusFactorMetrics(busRes.metrics || []);
+      setBusFactorMetrics(Array.isArray(busRes) ? busRes : (busRes?.metrics || []));
     } catch (e) {
       console.warn("API poll notice: using cached/offline operational state", e);
     }
@@ -331,17 +333,21 @@ function App() {
   };
 
   const handleQuickTrigger = async (type) => {
-    setSimulating(true);
+    setSimulating(type);
     try {
       if (type === "payments" || type === "oom" || type === "multistack") {
-        await fetch(`${API_BASE}/api/v1/flight-sim/simulate?scenario=${type}`, { method: "POST" });
+        const res = await fetch(`${API_BASE}/api/v1/flight-sim/simulate?scenario=${type}`, { method: "POST" });
+        const simData = await res.json();
+        if (simData?.incident?.id) {
+          setSelectedIncidentId(simData.incident.id);
+        }
       }
       await fetchInitialData();
       setActiveTab("studio");
     } catch (e) {
       console.warn("Simulation trigger:", e);
     } finally {
-      setTimeout(() => setSimulating(false), 500);
+      setTimeout(() => setSimulating(null), 600);
     }
   };
 
@@ -960,11 +966,11 @@ function OverviewView({
           </button>
 
           <button
-            disabled={simulating}
+            disabled={!!simulating}
             onClick={() => onQuickTrigger("multistack")}
             className="eng-btn-secondary text-sm py-2 px-4 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
           >
-            <span>{simulating ? "Executing..." : "Run Multi-Stack Demo (0.3s)"}</span>
+            <span>{simulating === "multistack" ? "Executing Swarm..." : "Run Multi-Stack Demo (0.3s)"}</span>
           </button>
 
           <div className="eng-badge eng-badge-neutral text-xs font-mono py-1.5 px-3">
@@ -1393,18 +1399,18 @@ function StudioView({ activeData, incidentsList, onSelectIncident, onOpenRunbook
         </div>
         <div className="flex items-center gap-3">
           <button
-            disabled={simulating}
+            disabled={!!simulating}
             onClick={() => onQuickTrigger("payments")}
             className="eng-btn-primary text-xs"
           >
-            <span>{simulating ? "Simulating..." : "Simulate K8s Outage"}</span>
+            <span>{simulating === "payments" ? "Simulating Outage..." : "Simulate K8s Outage"}</span>
           </button>
           <button
-            disabled={simulating}
+            disabled={!!simulating}
             onClick={() => onQuickTrigger("oom")}
             className="eng-btn-secondary text-xs"
           >
-            <span>Simulate OOM Recurrence</span>
+            <span>{simulating === "oom" ? "Simulating OOM..." : "Simulate OOM Recurrence"}</span>
           </button>
         </div>
       </div>
@@ -1413,7 +1419,7 @@ function StudioView({ activeData, incidentsList, onSelectIncident, onOpenRunbook
       <div className="eng-panel p-6 border-rose-500/40 bg-rose-500/[0.02] space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
             <span className="eng-badge eng-badge-rose text-[10px]">
               {activeInc ? activeInc.severity : "P1"} CRITICAL
             </span>
@@ -1427,10 +1433,12 @@ function StudioView({ activeData, incidentsList, onSelectIncident, onOpenRunbook
         </div>
 
         <p className="text-xs text-[var(--text-sub)] max-w-3xl">
-          Symptoms: 504 Gateway Timeout across /api/v1/charge • p99 latency spiked to 14.2s • Postgres pool saturated. OpsGenome captured 15 commands with in-process secret redaction and verified state deltas via Minikube.
+          {activeInc?.symptoms && activeInc.symptoms.length > 0
+            ? `Symptoms: ${activeInc.symptoms.join(" • ")}`
+            : "Symptoms: 504 Gateway Timeout across /api/v1/charge • p99 latency spiked to 14.2s • Postgres pool saturated. OpsGenome captured 15 commands with in-process secret redaction and verified state deltas via Minikube."}
         </p>
 
-        <div className="flex items-center gap-4 pt-2">
+        <div className="flex flex-wrap items-center gap-4 pt-2">
           <button
             onClick={() => onSelectIncident(activeInc?.id || "inc-pay-101")}
             className="eng-btn-primary text-xs py-1.5 px-4"
@@ -1439,7 +1447,9 @@ function StudioView({ activeData, incidentsList, onSelectIncident, onOpenRunbook
             <Icons.ChevronRight />
           </button>
           <span className="text-xs font-mono text-emerald-400">
-            ✓ 1-Click Fix: kubectl rollout undo deployment/payments-service
+            {activeInc?.root_cause_category === "memory_exhaustion"
+              ? "✓ 1-Click Fix: kubectl set resources deployment payments-service --limits=memory=512Mi (Recurrence: 98% Confidence)"
+              : "✓ 1-Click Fix: kubectl rollout undo deployment/payments-service"}
           </span>
         </div>
       </div>

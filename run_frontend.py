@@ -164,7 +164,15 @@ if __name__ == "__main__":
         print(f"    • Multi-Agent UI:  http://localhost:{port}/ (Click 'Swarm Studio')")
         print(f"    • REST & WS APIs:  http://localhost:{port}/api/v1/status")
         print(f"=======================================================\n")
-        uvicorn.run("opsgenome.daemon.server:create_app", factory=True, host="127.0.0.1", port=port, log_level="info")
+        uvicorn.run(
+            "opsgenome.daemon.server:create_app",
+            factory=True,
+            host="127.0.0.1",
+            port=port,
+            log_level="info",
+            reload=True,
+            reload_dirs=[os.path.join(WORKSPACE_ROOT, "opsgenome")],
+        )
     except Exception as e:
         print(f"Falling back to standalone proxy: {e}")
         run(port)

@@ -47,3 +47,49 @@ def test_flight_simulator_scenario_generation(tmp_path):
     assert steps[2]["phase"] == "REMEDIAL FIX"
     assert "THE FIX" in steps[2]["expert_annotation"]
     assert steps[2]["quiz_question"] is not None
+
+
+def test_flight_sim_simulate_api(tmp_path):
+    from fastapi.testclient import TestClient
+    from opsgenome.daemon.server import create_app
+
+    test_db = str(tmp_path / "sim_test.db")
+    db = DatabaseManager(db_path=test_db)
+    app = create_app(db=db)
+    client = TestClient(app)
+
+    # 1. Simulate K8s Outage (payments scenario)
+    res_pay = client.post("/api/v1/flight-sim/simulate?scenario=payments")
+    assert res_pay.status_code == 200
+    pay_data = res_pay.json()
+    assert pay_data["status"] == "ok"
+    assert pay_data["scenario"] == "payments"
+    assert "Payments Service 504" in pay_data["incident"]["title"]
+    assert pay_data["incident"]["status"] == "open"
+    assert len(pay_data["events"]) == 4
+
+    # 2. Simulate OOM Recurrence (oom scenario)
+    res_oom = client.post("/api/v1/flight-sim/simulate?scenario=oom")
+    assert res_oom.status_code == 200
+    oom_data = res_oom.json()
+    assert oom_data["status"] == "ok"
+    assert oom_data["scenario"] == "oom"
+    assert "OOMKilled" in oom_data["incident"]["title"]
+    assert oom_data["incident"]["root_cause_category"] == "memory_exhaustion"
+    assert len(oom_data["events"]) == 3
+
+    # 3. Simulate Multi-Stack Scenario
+    res_multi = client.post("/api/v1/flight-sim/simulate?scenario=multistack")
+    assert res_multi.status_code == 200
+    multi_data = res_multi.json()
+    assert multi_data["status"] == "ok"
+    assert multi_data["scenario"] == "multistack"
+    assert "Cross-Stack Outage" in multi_data["incident"]["title"]
+
+    # 4. Verify that active incident endpoint reflects latest simulation
+    active_res = client.get("/api/v1/incidents/active")
+    assert active_res.status_code == 200
+    active_data = active_res.json()
+    assert active_data is not None
+    assert active_data["incident"]["id"] == multi_data["incident"]["id"]
+
