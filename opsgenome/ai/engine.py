@@ -43,9 +43,13 @@ class AIReasoningEngine:
         model: str | None = None,
         provider: str = "auto",
         gemini_api_key: str | None = None,
+        groq_api_key: str | None = None,
+        ollama_host: str | None = None,
     ):
         self.gemini_api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
         self.anthropic_api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.groq_api_key = groq_api_key or os.getenv("GROQ_API_KEY")
+        self.ollama_host = ollama_host or os.getenv("OLLAMA_HOST", "http://localhost:11434")
         self.api_key = self.anthropic_api_key  # Backward-compatibility alias
 
         prov = provider.lower() if provider else "auto"
@@ -53,9 +57,15 @@ class AIReasoningEngine:
             if self.gemini_api_key:
                 self.provider = "gemini"
                 self.model = model or "gemini-1.5-flash"
+            elif self.groq_api_key:
+                self.provider = "groq"
+                self.model = model or "llama-3.3-70b-versatile"
             elif self.anthropic_api_key:
                 self.provider = "anthropic"
                 self.model = model or "claude-3-5-sonnet-20241022"
+            elif os.getenv("OPSGENOME_LOCAL_LLM") == "1":
+                self.provider = "ollama"
+                self.model = model or "deepseek-r1:latest"
             else:
                 self.provider = "offline"
                 self.model = model or "deterministic-offline"
@@ -63,8 +73,12 @@ class AIReasoningEngine:
             self.provider = prov
             if self.provider == "gemini":
                 self.model = model or "gemini-1.5-flash"
+            elif self.provider == "groq":
+                self.model = model or "llama-3.3-70b-versatile"
             elif self.provider == "anthropic":
                 self.model = model or "claude-3-5-sonnet-20241022"
+            elif self.provider == "ollama":
+                self.model = model or "deepseek-r1:latest"
             else:
                 self.model = model or "deterministic-offline"
         self._idempotency_cache: dict[str, dict[str, Any]] = {}
@@ -83,9 +97,19 @@ class AIReasoningEngine:
                 return self._gemini_chain_assembly(incident, high_signal_events, snapshots)
             except Exception:
                 pass
+        elif self.provider == "groq" and self.groq_api_key:
+            try:
+                return self._groq_chain_assembly(incident, high_signal_events, snapshots)
+            except Exception:
+                pass
         elif self.provider == "anthropic" and self.anthropic_api_key:
             try:
                 return self._anthropic_chain_assembly(incident, high_signal_events, snapshots)
+            except Exception:
+                pass
+        elif self.provider == "ollama":
+            try:
+                return self._ollama_chain_assembly(incident, high_signal_events, snapshots)
             except Exception:
                 pass
         return self._heuristic_chain_assembly(incident, high_signal_events, snapshots)
@@ -104,9 +128,19 @@ class AIReasoningEngine:
                 return self._gemini_runbook_narration(incident, causal_chain_data)
             except Exception:
                 pass
+        elif self.provider == "groq" and self.groq_api_key:
+            try:
+                return self._groq_runbook_narration(incident, causal_chain_data)
+            except Exception:
+                pass
         elif self.provider == "anthropic" and self.anthropic_api_key:
             try:
                 return self._anthropic_runbook_narration(incident, causal_chain_data)
+            except Exception:
+                pass
+        elif self.provider == "ollama":
+            try:
+                return self._ollama_runbook_narration(incident, causal_chain_data)
             except Exception:
                 pass
         return self._heuristic_runbook_narration(incident, causal_chain_data, high_signal_events)
@@ -121,7 +155,7 @@ class AIReasoningEngine:
         error_output: str,
         exit_code: int = 1,
     ) -> dict[str, Any]:
-        """Diagnose code failure and synthesize corrected source code using Gemini, Claude, or deterministic heuristic."""
+        """Diagnose code failure and synthesize corrected source code using Gemini, Groq, Claude, Ollama, or deterministic heuristic."""
         # 1. Idempotency Cache Check (0 API calls on recurrent signature)
         cache_key = hashlib.sha256(f"{filename}:{code_content}:{error_output}".encode("utf-8")).hexdigest()
         if cache_key in self._idempotency_cache:
@@ -135,9 +169,19 @@ class AIReasoningEngine:
                 res = self._gemini_code_fix(filename, code_content, command, error_output, exit_code)
             except Exception:
                 pass
+        elif self.provider == "groq" and self.groq_api_key:
+            try:
+                res = self._groq_code_fix(filename, code_content, command, error_output, exit_code)
+            except Exception:
+                pass
         elif self.provider == "anthropic" and self.anthropic_api_key:
             try:
                 res = self._anthropic_code_fix(filename, code_content, command, error_output, exit_code)
+            except Exception:
+                pass
+        elif self.provider == "ollama":
+            try:
+                res = self._ollama_code_fix(filename, code_content, command, error_output, exit_code)
             except Exception:
                 pass
 
@@ -602,6 +646,109 @@ Original Source Code:
 """
         return self._gemini_api_call(system_prompt, user_prompt)
 
+    # --- Groq LPU & Ollama Local LLM Callers ---
+
+    def _openai_compatible_call(
+        self,
+        endpoint_url: str,
+        api_key: str,
+        model_name: str,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> dict[str, Any]:
+        """Generic structured JSON caller for Groq LPU and Ollama local LLM APIs."""
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.1,
+        }
+        with httpx.Client(timeout=25.0) as client:
+            resp = client.post(endpoint_url, json=payload, headers=headers)
+            resp.raise_for_status()
+            data = resp.json()
+            raw_text = data["choices"][0]["message"]["content"].strip()
+            clean_json = re.sub(r"^```(?:json)?\s*", "", raw_text)
+            clean_json = re.sub(r"\s*```$", "", clean_json)
+            return json.loads(clean_json)
+
+    def _groq_chain_assembly(self, incident: Incident, events: list[Event], snapshots: list[StateSnapshot] | None) -> dict[str, Any]:
+        model_name = self.model if ("llama" in self.model or "mixtral" in self.model) else "llama-3.3-70b-versatile"
+        return self._openai_compatible_call(
+            endpoint_url="https://api.groq.com/openai/v1/chat/completions",
+            api_key=self.groq_api_key or "",
+            model_name=model_name,
+            system_prompt="You are a structured operational-incident analysis engine. Analyze the telemetry and return valid JSON with keys: symptom, disambiguation_required, hypothesis, ranked_hypotheses, evidence_event_ids, fix_event_ids, negative_knowledge_event_ids, outcome, reasoning_notes.",
+            user_prompt=f"Incident: {incident.title}\nEvents: {len(events)} captured.",
+        )
+
+    def _groq_runbook_narration(self, incident: Incident, chain_data: dict[str, Any]) -> dict[str, Any]:
+        model_name = self.model if ("llama" in self.model or "mixtral" in self.model) else "llama-3.3-70b-versatile"
+        return self._openai_compatible_call(
+            endpoint_url="https://api.groq.com/openai/v1/chat/completions",
+            api_key=self.groq_api_key or "",
+            model_name=model_name,
+            system_prompt="You are an SRE runbook narration engine. Convert the causal chain into a 3am imperative runbook JSON with keys: title, root_cause_category, markdown_narration, steps.",
+            user_prompt=json.dumps(chain_data, indent=2),
+        )
+
+    def _groq_code_fix(self, filename: str, code_content: str, command: str, error_output: str, exit_code: int) -> dict[str, Any]:
+        model_name = self.model if ("llama" in self.model or "mixtral" in self.model) else "llama-3.3-70b-versatile"
+        system_prompt = (
+            "You are an autonomous SRE and code repair engine. Analyze the error and return JSON with keys: "
+            "symptom, root_cause, fixed_code, explanation, diff_summary. fixed_code must be the complete, repaired file content."
+        )
+        user_prompt = f"Command: {command}\nFile: {filename}\nError:\n{error_output}\n\nSource Code:\n{code_content}"
+        return self._openai_compatible_call(
+            endpoint_url="https://api.groq.com/openai/v1/chat/completions",
+            api_key=self.groq_api_key or "",
+            model_name=model_name,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+    def _ollama_chain_assembly(self, incident: Incident, events: list[Event], snapshots: list[StateSnapshot] | None) -> dict[str, Any]:
+        model_name = self.model if ("deepseek" in self.model or "llama" in self.model or "qwen" in self.model) else "deepseek-r1:latest"
+        return self._openai_compatible_call(
+            endpoint_url=f"{self.ollama_host}/v1/chat/completions",
+            api_key="ollama",
+            model_name=model_name,
+            system_prompt="You are a structured operational-incident analysis engine. Return JSON causal chain.",
+            user_prompt=f"Incident: {incident.title}\nEvents: {len(events)} captured.",
+        )
+
+    def _ollama_runbook_narration(self, incident: Incident, chain_data: dict[str, Any]) -> dict[str, Any]:
+        model_name = self.model if ("deepseek" in self.model or "llama" in self.model or "qwen" in self.model) else "deepseek-r1:latest"
+        return self._openai_compatible_call(
+            endpoint_url=f"{self.ollama_host}/v1/chat/completions",
+            api_key="ollama",
+            model_name=model_name,
+            system_prompt="You are an SRE runbook narration engine. Convert causal chain into JSON runbook.",
+            user_prompt=json.dumps(chain_data, indent=2),
+        )
+
+    def _ollama_code_fix(self, filename: str, code_content: str, command: str, error_output: str, exit_code: int) -> dict[str, Any]:
+        model_name = self.model if ("deepseek" in self.model or "llama" in self.model or "qwen" in self.model) else "deepseek-r1:latest"
+        system_prompt = (
+            "You are an autonomous SRE and code repair engine. Analyze the error and return JSON with keys: "
+            "symptom, root_cause, fixed_code, explanation, diff_summary. fixed_code must be the complete, repaired file content."
+        )
+        user_prompt = f"Command: {command}\nFile: {filename}\nError:\n{error_output}\n\nSource Code:\n{code_content}"
+        return self._openai_compatible_call(
+            endpoint_url=f"{self.ollama_host}/v1/chat/completions",
+            api_key="ollama",
+            model_name=model_name,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
     def _heuristic_code_fix(
         self,
         filename: str,
@@ -610,7 +757,7 @@ Original Source Code:
         error_output: str,
         exit_code: int,
     ) -> dict[str, Any]:
-        """Deterministic offline heuristic engine for common code errors (recursion, zero-division, syntax)."""
+        """Deterministic offline heuristic engine for common code errors (recursion, zero-division, syntax, imports)."""
         err_lower = error_output.lower()
         code_lower = code_content.lower()
 
@@ -633,7 +780,6 @@ Original Source Code:
                             indent = line[:len(line) - len(line.lstrip())]
                     fn_body += line + "\n"
                 
-                # Verify if termination base case is missing from the function body
                 has_base_case = any(k in fn_body for k in [f"{arg_name} <= 0", f"{arg_name} < 2", f"{arg_name} == 0", f"{arg_name} <= 1"])
                 if not has_base_case:
                     base_case = f"\n{indent}if {arg_name} <= 0:\n{indent}    return 0\n{indent}if {arg_name} == 1:\n{indent}    return 1"
@@ -662,13 +808,99 @@ Original Source Code:
                     "diff_summary": f"Added zero-division safety guard to `{denom}`",
                 }
 
-        # 3. Fallback
+        # 3. IndexError (list index out of range)
+        if "indexerror" in err_lower or "list index out of range" in err_lower:
+            idx_pattern = re.compile(r"(\b[a-zA-Z0-9_]+\b)\[(\b[a-zA-Z0-9_]+\b)\]")
+            match = idx_pattern.search(code_content)
+            if match:
+                arr_var = match.group(1)
+                idx_var = match.group(2)
+                guard = f"({arr_var}[{idx_var}] if {idx_var} < len({arr_var}) else None)"
+                fixed = code_content.replace(f"{arr_var}[{idx_var}]", guard, 1)
+                return {
+                    "symptom": "IndexError: list index out of range",
+                    "root_cause": f"Unbounded index lookup `{arr_var}[{idx_var}]` exceeding array length.",
+                    "fixed_code": fixed,
+                    "explanation": f"Added bounds check guarding `{arr_var}[{idx_var}]` against out-of-range index.",
+                    "diff_summary": f"Added bounds safety check to `{arr_var}[{idx_var}]`",
+                }
+
+        # 4. KeyError (missing dictionary key)
+        if "keyerror" in err_lower:
+            key_pattern = re.compile(r"(\b[a-zA-Z0-9_]+\b)\[(['\"][a-zA-Z0-9_]+['\"])\]")
+            match = key_pattern.search(code_content)
+            if match:
+                dict_var = match.group(1)
+                key_str = match.group(2)
+                replacement = f"{dict_var}.get({key_str})"
+                fixed = code_content.replace(f"{dict_var}[{key_str}]", replacement, 1)
+                return {
+                    "symptom": f"KeyError: {key_str}",
+                    "root_cause": f"Direct dictionary lookup `{dict_var}[{key_str}]` without key existence check.",
+                    "fixed_code": fixed,
+                    "explanation": f"Replaced direct index with safe `.get({key_str})` default fallback.",
+                    "diff_summary": f"Guarded dictionary lookup with `.get({key_str})`",
+                }
+
+        # 5. AttributeError: 'NoneType' object has no attribute '...'
+        if "nonetype" in err_lower and ("attribute" in err_lower or "has no attribute" in err_lower):
+            attr_match = re.search(r"'NoneType' object has no attribute '([a-zA-Z0-9_]+)'", error_output, re.IGNORECASE)
+            attr_name = attr_match.group(1) if attr_match else ""
+            if attr_name:
+                pattern = re.compile(r"(\b[a-zA-Z0-9_]+\b)\." + re.escape(attr_name))
+                match = pattern.search(code_content)
+                if match:
+                    var_name = match.group(1)
+                    safe_call = f"({var_name}.{attr_name} if {var_name} is not None else None)"
+                    fixed = code_content.replace(match.group(0), safe_call, 1)
+                    return {
+                        "symptom": f"AttributeError: 'NoneType' object has no attribute '{attr_name}'",
+                        "root_cause": f"Dereferenced attribute `.{attr_name}` on `{var_name}` when evaluated to None.",
+                        "fixed_code": fixed,
+                        "explanation": f"Guarded attribute access with `if {var_name} is not None` safety check.",
+                        "diff_summary": f"Added NoneType guard to `{var_name}.{attr_name}`",
+                    }
+
+        # 6. NameError (missing import)
+        if "nameerror" in err_lower and "is not defined" in err_lower:
+            name_match = re.search(r"name '([a-zA-Z0-9_]+)' is not defined", error_output)
+            if name_match:
+                missing_name = name_match.group(1)
+                common_modules = {"os", "sys", "json", "time", "math", "re", "hashlib", "subprocess", "pathlib"}
+                if missing_name in common_modules:
+                    import_stmt = f"import {missing_name}\n"
+                    fixed = import_stmt + code_content
+                    return {
+                        "symptom": f"NameError: name '{missing_name}' is not defined",
+                        "root_cause": f"Standard library module `{missing_name}` used without import statement.",
+                        "fixed_code": fixed,
+                        "explanation": f"Prepended `import {missing_name}` to source code file.",
+                        "diff_summary": f"Imported module `{missing_name}`",
+                    }
+
+        # 7. SyntaxError (missing colon in block header)
+        if "syntaxerror" in err_lower and ("expected ':'" in err_lower or "invalid syntax" in err_lower):
+            lines = code_content.splitlines()
+            colon_regex = re.compile(r"^\s*(def|if|elif|else|for|while|class|try|except|finally|with)\b.*[^:]\s*$")
+            for i, l in enumerate(lines):
+                if colon_regex.match(l) and not l.strip().endswith(":"):
+                    lines[i] = l.rstrip() + ":"
+                    fixed = "\n".join(lines) + "\n"
+                    return {
+                        "symptom": "SyntaxError: expected ':'",
+                        "root_cause": f"Missing trailing colon in block header: `{l.strip()}`",
+                        "fixed_code": fixed,
+                        "explanation": f"Added missing trailing colon to block header: `{l.strip()}:`",
+                        "diff_summary": f"Added missing colon to line {i+1}",
+                    }
+
+        # 8. Fallback
         symptom = error_output.strip().splitlines()[-1] if error_output.strip() else f"Process exited with code {exit_code}"
         return {
             "symptom": symptom,
             "root_cause": f"Command `{command}` failed with exit code {exit_code}.",
             "fixed_code": code_content,
-            "explanation": "No offline heuristic matched this failure signature. Configure GEMINI_API_KEY to activate generative multi-modal reasoning.",
+            "explanation": "No offline heuristic matched this failure signature. Configure GEMINI_API_KEY, GROQ_API_KEY, or local Ollama for generative multi-modal reasoning.",
             "diff_summary": "No modification generated",
         }
 
@@ -881,3 +1113,132 @@ Original Source Code:
             "root_cause_category": root_cause,
             "steps": steps,
         }
+
+    # --- Stage B: Log Triage Targeted Reasoning ---
+
+    def build_triage_prompt(
+        self,
+        incident: Incident,
+        candidates: list[Any],
+        max_context_lines: int = 50,
+    ) -> str:
+        """Constructs a strictly bounded LLM prompt from Stage A candidates.
+
+        CRITICAL DESIGN INVARIANT:
+        Stage B must NEVER receive more than a small, bounded number of candidate lines
+        (enforced cap of max_context_lines, default 50 lines total).
+        The prompt size is strictly bounded and O(1) with respect to input log size.
+        """
+        lines_used = 0
+        snippets: list[str] = []
+        for idx, cand in enumerate(candidates):
+            if lines_used >= max_context_lines:
+                break
+            pod_str = f" [pod: {cand.trigger_line.source_pod}]" if getattr(cand.trigger_line, "source_pod", None) else ""
+            container_str = f" [container: {cand.trigger_line.source_container}]" if getattr(cand.trigger_line, "source_container", None) else ""
+            line_str = f" [line: {cand.trigger_line.line_number}]"
+
+            header = f"--- Candidate {idx + 1} (Score: {cand.score:.2f}, Type: {cand.signal_type}{pod_str}{container_str}{line_str}) ---"
+
+            cand_lines = [l.raw_text for l in cand.context_before] + [cand.trigger_line.raw_text] + [l.raw_text for l in cand.context_after]
+            allowed = max_context_lines - lines_used
+            chunk = cand_lines[:allowed]
+            lines_used += len(chunk)
+            snippets.append(header + "\n" + "\n".join(chunk))
+
+        joined_telemetry = "\n\n".join(snippets)
+
+        return (
+            f"Analyze the following {len(snippets)} high-signal diagnostic candidate windows extracted "
+            f"from the incident log stream for service '{incident.service}'.\n\n"
+            f"<untrusted_operational_data>\n"
+            f"{joined_telemetry}\n"
+            f"</untrusted_operational_data>\n\n"
+            "Rank the hypotheses in order of likelihood. Distinguish between co-occurring errors versus "
+            "the primary root cause. Return valid JSON matching the standard hypothesis schema."
+        )
+
+    def disambiguate_triage_candidates(
+        self,
+        incident: Incident,
+        candidates: list[Any],
+        max_context_lines: int = 50,
+    ) -> dict[str, Any]:
+        """Stage B: Targeted reasoning on Stage A's bounded candidate set."""
+        if not candidates:
+            return {
+                "symptom": "No diagnostic signal",
+                "disambiguation_required": False,
+                "hypothesis": "No root cause detected in log stream.",
+                "ranked_hypotheses": [],
+                "outcome": "insufficient_data",
+                "reasoning_notes": "Stage A scanner found zero candidate lines exceeding the confidence threshold.",
+                "prompt_size_chars": 0,
+            }
+
+        prompt = self.build_triage_prompt(incident, candidates, max_context_lines=max_context_lines)
+        prompt_size = len(prompt)
+
+        # If exactly 1 high-confidence candidate (>= 0.90) with structured error, resolve directly
+        if len(candidates) == 1 and candidates[0].score >= 0.90:
+            cand = candidates[0]
+            if cand.parsed_error:
+                hyp = (
+                    f"Uncaught {cand.parsed_error.get('exception_type', 'Error')} in "
+                    f"{cand.parsed_error.get('file', 'unknown')}:{cand.parsed_error.get('line', '?')}: "
+                    f"{cand.parsed_error.get('message', '')}"
+                )
+            else:
+                hyp = f"{cand.signal_type}: {cand.trigger_line.raw_text.strip()}"
+
+            pod_note = f" (in pod {cand.trigger_line.source_pod})" if getattr(cand.trigger_line, "source_pod", None) else ""
+            return {
+                "symptom": f"Service failure{pod_note}",
+                "disambiguation_required": False,
+                "hypothesis": hyp,
+                "ranked_hypotheses": [
+                    {
+                        "rank": 1,
+                        "hypothesis": hyp,
+                        "candidate_event_ids": [cand.candidate_id],
+                        "supporting_evidence": [cand.trigger_line.raw_text.strip()],
+                        "confidence": 0.95,
+                        "distinguishing_factor": "Single unambiguous high-confidence root cause in log stream",
+                    }
+                ],
+                "outcome": "resolved",
+                "reasoning_notes": "Single unambiguous high-signal failure isolated by Stage A.",
+                "prompt_size_chars": prompt_size,
+            }
+
+        # If multiple candidates, rank and disambiguate
+        ranked = []
+        total_score = sum(c.score for c in candidates)
+        for rank_idx, cand in enumerate(candidates):
+            conf = round(cand.score / max(1.0, total_score), 2)
+            if cand.parsed_error:
+                h_text = f"Uncaught {cand.parsed_error.get('exception_type')} in {cand.parsed_error.get('file')}:{cand.parsed_error.get('line')}"
+            else:
+                h_text = f"{cand.signal_type}: {cand.trigger_line.raw_text.strip()[:80]}"
+
+            pod_txt = f" (pod: {cand.trigger_line.source_pod})" if getattr(cand.trigger_line, "source_pod", None) else ""
+            ranked.append({
+                "rank": rank_idx + 1,
+                "hypothesis": f"{h_text}{pod_txt}",
+                "candidate_event_ids": [cand.candidate_id],
+                "supporting_evidence": [cand.trigger_line.raw_text.strip()],
+                "confidence": conf,
+                "distinguishing_factor": f"Verify whether {cand.signal_type} preceded downstream cascading failures",
+            })
+
+        primary_h = ranked[0]["hypothesis"]
+        return {
+            "symptom": f"Multiple diagnostic anomalies detected on {incident.service}",
+            "disambiguation_required": len(candidates) > 1,
+            "hypothesis": primary_h,
+            "ranked_hypotheses": ranked,
+            "outcome": "resolved" if candidates[0].score >= 0.85 else "inconclusive",
+            "reasoning_notes": f"Stage B disambiguated {len(candidates)} competing candidates within {max_context_lines} lines context budget.",
+            "prompt_size_chars": prompt_size,
+        }
+

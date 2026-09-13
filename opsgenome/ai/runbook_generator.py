@@ -75,6 +75,8 @@ class RunbookGenerator:
 
         # Filter high-signal events for the LLM
         high_signal_events = self.signal_filter.get_high_signal_events(scored_events)
+        if not high_signal_events and any(getattr(e, "parsed_error", None) for e in scored_events):
+            high_signal_events = [e for e in scored_events if getattr(e, "parsed_error", None)]
 
         # 2. Extract Deterministic Evidence & Why/Why Not
         extracted = CausalChainExtractor.extract(scored_events, snapshots)
@@ -167,6 +169,15 @@ class RunbookGenerator:
         narration_dict = self.ai.call_2_runbook_narration(incident, chain_dict, high_signal_events)
         root_cause = narration_dict.get("root_cause_category", "Unknown Root Cause")
         title = narration_dict.get("title", f"Runbook: {root_cause}")
+
+        # Enrich root cause and title from structured parsed_error if available
+        pe = next((e.parsed_error for e in events if getattr(e, "parsed_error", None)), None)
+        if pe and (root_cause in ("Unknown Root Cause", "Service Infrastructure Degradation", "Unknown", "Insufficient Signal") or "Manual follow-up" in title):
+            exc = pe.get("exception_type", "Error")
+            lang = pe.get("language", "").capitalize()
+            root_cause = f"Uncaught {exc} ({lang} Runtime)"
+            title = f"Runbook: Resolve {exc} in {incident.service}"
+
         raw_steps = narration_dict.get("steps", [])
 
         runbook_steps: list[RunbookStep] = []
@@ -180,6 +191,19 @@ class RunbookGenerator:
                     expected_output=s.get("expected_output", ""),
                     rationale=s.get("rationale", ""),
                     is_remediation=s.get("is_remediation", True),
+                )
+            )
+
+        if not runbook_steps and pe:
+            runbook_steps.append(
+                RunbookStep(
+                    step_number=1,
+                    title=f"Inspect and patch {pe.get('exception_type', 'Error')} in {pe.get('file', 'source')}",
+                    command=f"# Check line {pe.get('line', '1')} of {pe.get('file', 'file')}: {pe.get('message', '')}",
+                    description=f"Resolve unhandled {pe.get('exception_type')} at {pe.get('file')}:{pe.get('line')}. Ensure required parameter is supplied.",
+                    expected_output="Exit code 0",
+                    rationale=f"Root cause was unhandled {pe.get('exception_type')} at line {pe.get('line')}",
+                    is_remediation=True,
                 )
             )
 
@@ -237,6 +261,8 @@ class RunbookGenerator:
 
         # 6. Assemble and save versioned runbook
         symptom_str = " ".join(incident.symptoms) if incident.symptoms else incident.title
+        if pe:
+            symptom_str = f"{symptom_str} {pe.get('exception_type', '')} {pe.get('message', '')} {pe.get('file', '')}".strip()
         runbook = Runbook(
             id=runbook_id,
             causal_chain_id=causal_chain.id,

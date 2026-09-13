@@ -29,7 +29,7 @@ def get_default_socket_path() -> str:
         home_dir.mkdir(parents=True, exist_ok=True)
         return str(home_dir / "daemon.sock")
     except (PermissionError, OSError):
-        local_dir = Path("./.opsgenome_data")
+        local_dir = Path(__file__).resolve().parents[2] / ".opsgenome_data"
         local_dir.mkdir(parents=True, exist_ok=True)
         return str(local_dir / "daemon.sock")
 
@@ -90,6 +90,8 @@ def redact_and_dispatch(
     after_state: dict[str, Any] | None = None,
     socket_path: str | None = None,
     transport_sender=None,
+    stdout_snippet: str | None = None,
+    stderr_snippet: str | None = None,
 ) -> dict[str, Any]:
     """Redacts command and environment in-process on client BEFORE socket transmission.
 
@@ -117,6 +119,10 @@ def redact_and_dispatch(
         "duration_ms": int(duration_ms),
         "cwd": safe_cwd,
     }
+    if stdout_snippet:
+        payload["stdout_snippet"] = redact_text(stdout_snippet)
+    if stderr_snippet:
+        payload["stderr_snippet"] = redact_text(stderr_snippet)
     if incident_id:
         payload["incident_id"] = incident_id
     if safe_before:

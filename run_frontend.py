@@ -29,6 +29,9 @@ class OpsGenomeFrontendHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
+    def do_HEAD(self):
+        return self.do_GET()
+
     def do_GET(self):
         # Forward API calls to backend daemon
         if self.path.startswith("/api/"):
@@ -151,5 +154,17 @@ def run(port: int = 3000):
     httpd.serve_forever()
 
 if __name__ == "__main__":
-    p = int(sys.argv[1]) if len(sys.argv) > 1 else 3000
-    run(p)
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
+    try:
+        import uvicorn
+        from opsgenome.daemon.server import create_app
+        print(f"\n=======================================================")
+        print(f" 🚀 OpsGenome Unified Web & Swarm Studio Online on Port {port}")
+        print(f"    • Localhost URL:   http://localhost:{port}/")
+        print(f"    • Multi-Agent UI:  http://localhost:{port}/ (Click 'Swarm Studio')")
+        print(f"    • REST & WS APIs:  http://localhost:{port}/api/v1/status")
+        print(f"=======================================================\n")
+        uvicorn.run("opsgenome.daemon.server:create_app", factory=True, host="127.0.0.1", port=port, log_level="info")
+    except Exception as e:
+        print(f"Falling back to standalone proxy: {e}")
+        run(port)

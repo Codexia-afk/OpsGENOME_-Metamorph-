@@ -1,0 +1,6 @@
+LAST SEEN   TYPE      REASON                  OBJECT                          MESSAGE
+45s         Warning   BackOff                 pod/payments-api-7c9d           Back-off restarting failed container payments in pod payments-api-7c9d_payments: CrashLoopBackOff. Missing DATABASE_URL env var.
+32s         Warning   OOMKilled               pod/batch-worker-4e2b           Container worker exceeded memory limit 64Mi. Sent SIGKILL (exit code 137).
+18s         Warning   FailedToCreateEndpoint  service/frontend-gateway        Service selector app=web-v1 matches 0 pods in default namespace. Active pods have label app=web-v2.
+12s         Warning   Unhealthy               pod/auth-service-89f1           Readiness probe failed: HTTP probe failed with statuscode: 404 connection refused on port 8081. Server listening on 9090.
+5s          Warning   FailedToStart           container/redis-cache           Docker Compose: bind for 0.0.0.0:6379 failed: port is already allocated on host.

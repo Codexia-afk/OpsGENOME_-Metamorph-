@@ -17,6 +17,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from opsgenome.agents.cluster_auditor import ClusterMultiIssueAuditor
+from opsgenome.agents.demo_scenarios import (
+    get_demo_cluster_events_log,
+    get_demo_cross_stack_targets,
+    get_demo_incident_log,
+)
+from opsgenome.agents.models import AgentMessage, ClusterIssueReport, CoordinatedFixPlan
+from opsgenome.agents.orchestrator import LeadSREOrchestrator
+
+
 from opsgenome.ai.grounding import EvidenceGroundingValidator
 from opsgenome.ai.runbook_generator import RunbookGenerator
 from opsgenome.daemon.anomaly_detector import CommandBurstAnomalyDetector
@@ -67,6 +77,19 @@ class ResolveIncidentPayload(BaseModel):
     root_cause: str | None = None
 
 
+class MultiAgentAnalyzePayload(BaseModel):
+    targets: list[dict[str, Any]] = []
+    use_demo_incident: bool = False
+
+
+class ClusterAuditPayload(BaseModel):
+    namespace: str = "default"
+
+
+class ApplyCoordinatedFixPayload(BaseModel):
+    plan: dict[str, Any]
+
+
 def create_app(db: DatabaseManager | None = None) -> FastAPI:
     app = FastAPI(title="OpsGenome Operational Memory Engine", version="1.0.0")
 
@@ -92,6 +115,8 @@ def create_app(db: DatabaseManager | None = None) -> FastAPI:
     flight_sim = FlightSimulatorEngine(db=db_manager)
     shadow_copilot = ShadowCopilot(db=db_manager, recurrence_engine=recurrence_engine)
     anomaly_detector = CommandBurstAnomalyDetector(db=db_manager)
+    multi_agent_orchestrator = LeadSREOrchestrator()
+    cluster_auditor = ClusterMultiIssueAuditor()
 
     # Active WebSocket clients
     active_websockets: list[WebSocket] = []
@@ -845,6 +870,154 @@ def create_app(db: DatabaseManager | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Incident not found")
         events = db_manager.get_events_for_incident(incident_id)
         return shadow_copilot.evaluate_live_state(inc, events)
+
+    # --- Multi-Agent Swarm Orchestration ---
+
+    @app.get("/api/v1/multi-agent/swarm-status")
+    def get_multi_agent_swarm_status() -> dict[str, Any]:
+        """Returns the operational status, registered specialist agents, and capability matrix of the swarm."""
+        return {
+            "status": "ready",
+            "swarm_version": "1.0.0",
+            "lead_orchestrator": {
+                "name": multi_agent_orchestrator.name,
+                "role": "LEAD_ORCHESTRATOR",
+                "capabilities": ["cross_stack_synthesis", "topological_patch_ordering", "atomic_rollback_orchestration"],
+            },
+            "specialists": [
+                {
+                    "name": s.name,
+                    "role": s.role.value,
+                    "supported_stacks": list(s.supported_stacks),
+                    "model": s.model_name,
+                }
+                for s in multi_agent_orchestrator.specialists
+            ],
+            "security_sentinel": {
+                "name": multi_agent_orchestrator.sentinel_agent.name,
+                "role": multi_agent_orchestrator.sentinel_agent.role.value,
+                "enforcement": "fail-closed",
+            },
+        }
+
+    def _format_cross_stack_terminal_output(plan: CoordinatedFixPlan, messages: list[AgentMessage], targets: list[tuple[str, str, str]]) -> str:
+        lines = [
+            "🤖 OPSGENOME MULTI-AGENT SWARM: CROSS-STACK INCIDENT RESOLUTION",
+            f"Lead Orchestrator dispatching tasks across {len(targets)} components...\n",
+            "─── 💬 SWARM INTER-AGENT DIALOGUE ─────────────────────────────────────────────",
+        ]
+        for msg in messages:
+            lines.append(f"{msg.sender} ➔ {msg.recipient} [{msg.message_type}]")
+            lines.append(f"   {msg.content}\n")
+        lines.append(f"─── 📋 COORDINATED RESOLUTION PLAN (ID: {plan.plan_id}) ─────────────────────")
+        lines.append(f"Summary: {plan.cross_stack_summary}\n")
+        lines.append("Execution Order (Topological Dependency):")
+        for i, fpath in enumerate(plan.execution_order, 1):
+            finding = next((f for f in plan.findings if f.target_file == fpath), None)
+            stack_badge = f"[{finding.stack.upper()}]" if finding else ""
+            lines.append(f"  {i}. {Path(fpath).name} {stack_badge}")
+        lines.append("\nAtomic Diffs Formulated:\n")
+        for f in plan.findings:
+            fname = Path(f.target_file).name
+            lines.append(f"--- {fname} ({f.stack.upper()} | {f.exception_type}) ---")
+            lines.append(f"Root Cause: {f.root_cause}")
+            if f.proposed_diff:
+                lines.append(f.proposed_diff.strip())
+            lines.append("")
+        lines.append("Verification & Rollback Strategy:")
+        for cmd in plan.verification_commands:
+            lines.append(f"  • Verification: {cmd}")
+        for rb in plan.rollback_plan:
+            lines.append(f"  • Safety Guard: {rb}")
+        lines.append("\n✔ Multi-Agent Swarm Resolution Plan Synthesized Successfully.")
+        return "\n".join(lines)
+
+    def _format_cluster_audit_terminal_output(report: ClusterIssueReport, namespace: str = "default") -> str:
+        lines = [
+            "🔍 KUBERNETES & DOCKER CLUSTER MULTI-ISSUE AUDITOR",
+            f"Namespace: {namespace} | Deep cluster anomaly & misconfiguration scan...\n",
+            f"Total Anomalies Detected: {report.total_issues_found} simultaneous issues.\n",
+            "─── 🛠 STEP-BY-STEP REMEDIATION PLAYBOOK & YAML PATCHES ────────────────────────\n",
+        ]
+        for idx, issue in enumerate(report.issues, 1):
+            lines.append(f"[Issue #{idx}] {issue.resource_name} ({issue.issue_type}) - [{issue.severity}]")
+            lines.append(f"Root Cause: {issue.root_cause}")
+            lines.append(f"Impact: {issue.impact}")
+            lines.append("Immediate Remediation CLI:")
+            lines.append(f"  {issue.immediate_remediation_cmd}")
+            lines.append("Declarative YAML Patch:")
+            lines.append(issue.declarative_yaml_patch.strip())
+            lines.append("Verification CLI:")
+            lines.append(f"  {issue.verification_cmd}\n")
+        lines.append("✔ Cluster multi-issue diagnostic audit complete.")
+        return "\n".join(lines)
+
+    @app.post("/api/v1/multi-agent/analyze")
+    def analyze_multi_file_incident(payload: MultiAgentAnalyzePayload) -> dict[str, Any]:
+        """Dispatches multi-agent analysis across multiple heterogeneous files / error logs."""
+        try:
+            targets_raw = payload.targets
+            if payload.use_demo_incident or not targets_raw:
+                # Loaded from decoupled demo scenarios engine (opsgenome.agents.demo_scenarios):
+                target_tuples = get_demo_cross_stack_targets(read_from_disk_if_available=True, use_absolute_paths=True)
+            else:
+                target_tuples = [
+                    (
+                        t.get("file_path", "unknown"),
+                        t.get("content", ""),
+                        t.get("error_context", t.get("error_output", "")),
+                    )
+                    for t in targets_raw
+                ]
+
+            plan, messages = multi_agent_orchestrator.analyze_and_coordinate(target_tuples)
+            term_output = _format_cross_stack_terminal_output(plan, messages, target_tuples)
+            return {
+                "success": True,
+                "plan": plan.to_dict(),
+                "messages": [m.to_dict() for m in messages],
+                "terminal_output": term_output,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Multi-agent analysis failed: {exc}")
+
+    @app.post("/api/v1/multi-agent/cluster-audit")
+    def run_cluster_audit(payload: ClusterAuditPayload) -> dict[str, Any]:
+        """Audits Kubernetes & Docker clusters for multiple concurrent issues and provides root cause analysis and exact fixes."""
+        try:
+            report = cluster_auditor.audit_cluster(namespace=payload.namespace)
+            term_output = _format_cluster_audit_terminal_output(report, namespace=payload.namespace)
+            return {
+                "success": True,
+                "report": report.to_dict(),
+                "terminal_output": term_output,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Cluster multi-issue audit failed: {exc}")
+
+    @app.get("/api/v1/multi-agent/demo-logs")
+    def get_multi_agent_demo_logs() -> dict[str, Any]:
+        """Returns the raw cross-stack incident log and cluster events log for web display."""
+        return {
+            "success": True,
+            "incident_log": get_demo_incident_log(),
+            "cluster_events_log": get_demo_cluster_events_log(),
+        }
+
+    @app.post("/api/v1/multi-agent/apply-coordinated-fix")
+    def apply_coordinated_fix(payload: ApplyCoordinatedFixPayload) -> dict[str, Any]:
+        """Applies a multi-file coordinated fix plan atomically with automated rollback upon any failure."""
+        try:
+            plan = CoordinatedFixPlan.from_dict(payload.plan)
+            success, log = multi_agent_orchestrator.apply_coordinated_fix(plan)
+            return {
+                "success": success,
+                "log": log,
+                "plan_id": plan.plan_id,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to apply coordinated fix: {exc}")
+
 
     # --- WebSocket Live Feed ---
 

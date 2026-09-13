@@ -35,3 +35,9 @@ _opsgenome_precmd() {
 autoload -Uz add-zsh-hook
 add-zsh-hook preexec _opsgenome_preexec
 add-zsh-hook precmd _opsgenome_precmd
+
+# Interactive runner capturing full stdout/stderr with instant auto-fix capability
+ops-run() {
+    python3 -m opsgenome.cli.main run "$@"
+}
+alias opsrun="python3 -m opsgenome.cli.main run"

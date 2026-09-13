@@ -363,6 +363,12 @@ class EventSanitizer:
             if hasattr(event, "cwd"):
                 event.cwd = clean_cwd
 
+            # 5. Sanitize parsed_error structure if attached
+            raw_pe = getattr(event, "parsed_error", None)
+            if raw_pe:
+                clean_pe, pe_audits = redact_structure(raw_pe)
+                event.parsed_error = clean_pe
+
             # 5. Security Post-Validation: Fail-closed if residual patterns found
             if not self.redactor.validate_clean(clean_cmd) or not self.redactor.validate_clean(clean_out) or not self.redactor.validate_clean(clean_err):
                 raise SecurityBoundaryViolation("Sanitization post-validation failed: residual secret detected.")
@@ -370,4 +376,50 @@ class EventSanitizer:
             return event
         except Exception as e:
             raise SecurityBoundaryViolation(f"Sanitizer fail-closed: {e}") from e
+
+    def sanitize_candidate_window(self, window: Any) -> Any:
+        """Sanitizes a CandidateWindow in-memory before storage or Stage B AI submission.
+
+        Fails closed: if sanitization fails or residual unredacted secrets are detected,
+        raises SecurityBoundaryViolation.
+        """
+        try:
+            # 1. Sanitize trigger line
+            if hasattr(window, "trigger_line") and window.trigger_line:
+                clean_trig, _ = self.redactor.redact(getattr(window.trigger_line, "raw_text", ""))
+                if not self.redactor.validate_clean(clean_trig):
+                    raise SecurityBoundaryViolation("CandidateWindow trigger_line contains residual secrets")
+                window.trigger_line.raw_text = clean_trig
+
+            # 2. Sanitize context_before
+            if hasattr(window, "context_before") and window.context_before:
+                for line in window.context_before:
+                    clean_text, _ = self.redactor.redact(getattr(line, "raw_text", ""))
+                    if not self.redactor.validate_clean(clean_text):
+                        raise SecurityBoundaryViolation("CandidateWindow context_before contains residual secrets")
+                    line.raw_text = clean_text
+
+            # 3. Sanitize context_after
+            if hasattr(window, "context_after") and window.context_after:
+                for line in window.context_after:
+                    clean_text, _ = self.redactor.redact(getattr(line, "raw_text", ""))
+                    if not self.redactor.validate_clean(clean_text):
+                        raise SecurityBoundaryViolation("CandidateWindow context_after contains residual secrets")
+                    line.raw_text = clean_text
+
+            # 4. Sanitize parsed_error if present
+            if hasattr(window, "parsed_error") and window.parsed_error:
+                clean_pe, _ = redact_structure(window.parsed_error)
+                window.parsed_error = clean_pe
+
+            # 5. Sanitize full_window_text
+            if hasattr(window, "full_window_text") and window.full_window_text:
+                clean_full, _ = self.redactor.redact(window.full_window_text)
+                if not self.redactor.validate_clean(clean_full):
+                    raise SecurityBoundaryViolation("CandidateWindow full_window_text contains residual secrets")
+                window.full_window_text = clean_full
+
+            return window
+        except Exception as e:
+            raise SecurityBoundaryViolation(f"CandidateWindow sanitizer fail-closed: {e}") from e
 

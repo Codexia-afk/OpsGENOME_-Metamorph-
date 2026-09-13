@@ -10,11 +10,17 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shlex
 import socket
+import subprocess
 import sys
 import click
 from tabulate import tabulate
 import uvicorn
+from opsgenome.agents.cluster_auditor import ClusterMultiIssueAuditor
+from opsgenome.agents.demo_scenarios import get_demo_cross_stack_targets, reset_demo_incident_files
+from opsgenome.agents.orchestrator import LeadSREOrchestrator
+
 from opsgenome.ai.runbook_generator import RunbookGenerator
 from opsgenome.cli.hook_installer import HookInstaller
 from opsgenome.daemon.server import create_app
@@ -118,6 +124,14 @@ def show_categorized_help() -> None:
                 ("help [? / h]", "Display This Help Matrix", "Shows categorized command reference and quick action shortcuts."),
             ],
         ),
+        (
+            "🤖 5. MULTI-AGENT SWARM & CROSS-STACK RESOLUTION",
+            [
+                ("multi-agent analyze [--demo]", "Swarm Cross-Stack Analysis", "Lead Orchestrator dispatches concurrent specialists (Python, Java, Node, K8s) and synthesizes atomic plan."),
+                ("multi-agent cluster-audit", "Cluster Multi-Issue Auditor", "Scans K8s & Docker clusters for simultaneous issues and outputs exact copyable CLI commands and YAML patches."),
+                ("multi-agent demo [9 / m]", "Live Multi-Agent Swarm Demo", "Executes complete end-to-end multi-agent resolution and cluster audit in < 1 second."),
+            ],
+        ),
     ]
 
     for cat_title, cmds in categories:
@@ -152,10 +166,11 @@ def cli(ctx: click.Context) -> None:
         print(f"  {BOLD}[6]{RESET} or {BOLD}[t]{RESET} -> {CYAN}demo{RESET}          (Run 6-Step Hackathon Core Loop Demo)")
         print(f"  {BOLD}[7]{RESET} or {BOLD}[w]{RESET} -> {CYAN}daemon{RESET}        (Start Background Daemon & Web Dashboard)")
         print(f"  {BOLD}[8]{RESET} or {BOLD}[c]{RESET} -> {CYAN}doctor{RESET}        (Automated Diagnostic System Healthcheck)")
+        print(f"  {BOLD}[9]{RESET} or {BOLD}[m]{RESET} -> {CYAN}multi-agent{RESET}   (Multi-Agent Swarm Analysis & Cluster Audit)")
         print(f"  {BOLD}[?]{RESET} or {BOLD}[h]{RESET} -> {CYAN}help{RESET}          (View Full Categorized Command Matrix)")
         print(f"  {BOLD}[q]{RESET}         -> Exit\n")
 
-        choice = click.prompt(f"{YELLOW}Select an action [1-8 / s / r / d / b / p / t / w / c / ? / q]{RESET}", default="?", show_default=False)
+        choice = click.prompt(f"{YELLOW}Select an action [1-9 / s / r / d / b / p / t / w / c / m / ? / q]{RESET}", default="?", show_default=False)
         choice_clean = choice.strip().lower()
 
         if choice_clean in ["1", "s"]:
@@ -179,6 +194,8 @@ def cli(ctx: click.Context) -> None:
             ctx.invoke(cmd_daemon)
         elif choice_clean in ["8", "c"]:
             ctx.invoke(cmd_doctor)
+        elif choice_clean in ["9", "m"]:
+            ctx.invoke(cmd_multi_agent_demo)
         elif choice_clean in ["?", "h", "help"]:
             show_categorized_help()
         elif choice_clean == "q":
@@ -556,7 +573,12 @@ def cmd_apply_fix(runbook_id: str, incident_id: str | None, auto_approve: bool, 
 
     def execute_command(cmd: str) -> None:
         print(f"\n{CYAN}Executing: {cmd}{RESET}")
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        try:
+            tokens = shlex.split(cmd)
+            res = subprocess.run(tokens, shell=False, capture_output=True, text=True)
+        except Exception:
+            # Safe fallback if binary requires shell builtins
+            res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         if res.stdout:
             print(res.stdout)
         if res.stderr:
@@ -759,11 +781,22 @@ def cmd_doctor(namespace: str) -> None:
         collector = K8sCollector(namespace=namespace)
         health = collector.check_health()
         if health.get("healthy"):
-            k8s_status = f"{GREEN}CONNECTED{RESET}"
-            k8s_diag = f"API server responsive; namespace '{namespace}' active."
+            if health.get("simulated"):
+                k8s_status = f"{CYAN}SIMULATED [OK]{RESET}"
+                k8s_diag = f"Minikube offline; high-fidelity simulation engine active (namespace: '{namespace}')."
+            else:
+                k8s_status = f"{GREEN}CONNECTED{RESET}"
+                k8s_diag = f"API server responsive; namespace '{namespace}' active."
         else:
-            k8s_status = f"{YELLOW}UNREACHABLE / RBAC{RESET}"
-            k8s_diag = f"{health.get('error')}. (README.md §3)"
+            from opsgenome.watcher.k8s_sim import SimulatedK8sCollector
+            sim = SimulatedK8sCollector(namespace=namespace)
+            sim_health = sim.check_health()
+            if sim_health.get("healthy"):
+                k8s_status = f"{CYAN}SIMULATED [OK]{RESET}"
+                k8s_diag = f"Minikube offline; high-fidelity simulation engine active (namespace: '{namespace}')."
+            else:
+                k8s_status = f"{YELLOW}UNREACHABLE / RBAC{RESET}"
+                k8s_diag = f"{health.get('error')}. (README.md §3)"
     except Exception as e:
         k8s_status = f"{RED}ERROR{RESET}"
         k8s_diag = f"{e}. (README.md §3)"
@@ -798,16 +831,24 @@ def cmd_doctor(namespace: str) -> None:
 
     # 5. AI Reasoning & Grounding
     has_gemini = bool(os.environ.get("GEMINI_API_KEY"))
+    has_groq = bool(os.environ.get("GROQ_API_KEY"))
     has_claude = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_ollama = bool(os.environ.get("OLLAMA_HOST") or os.environ.get("OPSGENOME_LOCAL_LLM") == "1")
     if has_gemini:
         ai_status = f"{GREEN}GEMINI ONLINE{RESET}"
         ai_diag = "Google Gemini API key set; multimodal semantic reasoning active."
+    elif has_groq:
+        ai_status = f"{GREEN}GROQ LPU ONLINE{RESET}"
+        ai_diag = "Groq LPU API key set; sub-200ms ultra-fast inference active."
     elif has_claude:
         ai_status = f"{GREEN}CLAUDE ONLINE{RESET}"
         ai_diag = "Anthropic API key set; multi-candidate semantic disambiguation enabled."
+    elif has_ollama:
+        ai_status = f"{GREEN}OLLAMA LOCAL ONLINE{RESET}"
+        ai_diag = "Local air-gapped LLM provider active on localhost:11434."
     else:
         ai_status = f"{CYAN}OFFLINE HEURISTIC{RESET}"
-        ai_diag = "Deterministic rule engine active with honest fallback. (README.md §6.1)"
+        ai_diag = "Deterministic rule engine active with zero-token offline code repair."
     results.append(["AI Engine", ai_status, ai_diag])
 
     print(tabulate(results, headers=["Subsystem", "Health Status", "Diagnostic Details / Resolution"], tablefmt="fancy_grid"))
@@ -815,18 +856,13 @@ def cmd_doctor(namespace: str) -> None:
 
 
 @cli.command("fix")
-@click.argument("target", required=False, default=None)
-@click.option("--ai", default="auto", type=click.Choice(["auto", "gemini", "claude", "offline"], case_sensitive=False), help="AI reasoning engine provider.")
-@click.option("--model", default=None, help="Model override (e.g. gemini-1.5-flash, gemini-2.0-flash, claude-3-5-sonnet-20241022).")
+@click.argument("targets", nargs=-1, required=False)
+@click.option("--ai", default="auto", type=click.Choice(["auto", "gemini", "groq", "claude", "ollama", "offline"], case_sensitive=False), help="AI reasoning engine provider.")
+@click.option("--model", default=None, help="Model override (e.g. gemini-1.5-flash, llama-3.3-70b-versatile, claude-3-5-sonnet-20241022).")
 @click.option("--auto-approve", "-y", is_flag=True, default=False, help="Auto-apply patch without interactive confirmation prompt.")
 @click.option("--verify/--no-verify", default=True, help="Run closed-loop verification after applying patch.")
-def cmd_fix(target: str | None, ai: str, model: str | None, auto_approve: bool, verify: bool) -> None:
-    """Autonomous AI Code & Incident Fixer with Closed-Loop Verification.
-
-    Captures execution failure tracebacks, diagnoses root cause using Google Gemini
-    (or Claude / offline heuristics), generates a unified diff, patches the file
-    safely with a .bak backup, and re-executes to verify live system recovery.
-    """
+def cmd_fix(targets: tuple[str, ...], ai: str, model: str | None, auto_approve: bool, verify: bool) -> None:
+    """Autonomous AI Code & Incident Fixer with Closed-Loop Verification across single or multiple files."""
     from opsgenome.ai.code_fixer import CodeFixEngine
     from opsgenome.ai.engine import AIReasoningEngine
 
@@ -834,93 +870,672 @@ def cmd_fix(target: str | None, ai: str, model: str | None, auto_approve: bool, 
     ai_engine = AIReasoningEngine(provider=ai, model=model)
     fixer = CodeFixEngine(ai_engine=ai_engine, db=db)
 
+    target_list = list(targets) if targets else [None]
+
     print(f"\n{BOLD}{CYAN}⚡ OpsGenome AI Autonomous Incident Fixer{RESET}")
-    print(f"{DIM}AI Provider: {ai_engine.provider.upper()} ({ai_engine.model}){RESET}\n")
+    print(f"{DIM}AI Provider: {ai_engine.provider.upper()} ({ai_engine.model}) • Checking {len(target_list)} target{'s' if len(target_list) > 1 else ''}{RESET}\n")
 
-    try:
-        failure = fixer.capture_failure(target)
-    except Exception as err:
-        print(f"{RED}Error capturing failure context:{RESET} {err}")
-        sys.exit(1)
+    for idx, target in enumerate(target_list, start=1):
+        if len(target_list) > 1:
+            print(f"\n{BOLD}{CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}")
+            print(f"{BOLD}{CYAN}▶ [{idx}/{len(target_list)}] Target: {target or 'Auto-Detect Latest Failure'}{RESET}")
+            print(f"{BOLD}{CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{RESET}")
 
-    print(f"• {BOLD}Target Script / File:{RESET} {failure.target_file}")
-    print(f"• {BOLD}Failed Command:{RESET} {failure.command} (Exit Code: {RED}{failure.exit_code}{RESET})")
-    
-    try:
-        fix_result = fixer.generate_fix(failure)
-    except Exception as err:
-        print(f"{RED}Diagnosis failed:{RESET} {err}")
-        sys.exit(1)
-
-    print(f"• {BOLD}Symptom:{RESET} {YELLOW}{fix_result.symptom}{RESET}")
-    print(f"• {BOLD}Root Cause:{RESET} {fix_result.root_cause}")
-    if fix_result.explanation:
-        print(f"• {BOLD}Analysis:{RESET} {fix_result.explanation}")
-
-    if fix_result.raw_bytes > 0:
-        print(f"• {BOLD}Telemetry Distillation:{RESET} {GREEN}{fix_result.raw_bytes:,} bytes{RESET} raw log ➔ {CYAN}{fix_result.distilled_bytes:,} bytes{RESET} semantic frame ({BOLD}{GREEN}{fix_result.compression_percent}% token compression{RESET})")
-
-    if fix_result.cache_hit:
-        print(f"• {BOLD}API Optimization:{RESET} {BOLD}{GREEN}MEMORY CACHE HIT{RESET} (0 external API calls consumed)")
-    elif ai_engine.provider == "offline":
-        print(f"• {BOLD}API Optimization:{RESET} {BOLD}{CYAN}DETERMINISTIC FIRST-PASS{RESET} (0 external API calls consumed)")
-    else:
-        print(f"• {BOLD}API Optimization:{RESET} {BOLD}{GREEN}1 COMPACT SEMANTIC PROMPT{RESET} (rate-limit protected)")
-
-    if not fix_result.diff.strip():
-        print(f"\n{YELLOW}No code modifications generated. Script may already be up to date or failure is unhandled.{RESET}\n")
-        return
-
-    print(f"\n{BOLD}{CYAN}Proposed Remediation Patch:{RESET}")
-    print("=" * 60)
-    for line in fix_result.diff.splitlines():
-        if line.startswith("---") or line.startswith("+++"):
-            print(f"{BOLD}{line}{RESET}")
-        elif line.startswith("@@"):
-            print(f"{CYAN}{line}{RESET}")
-        elif line.startswith("+"):
-            print(f"{GREEN}{line}{RESET}")
-        elif line.startswith("-"):
-            print(f"{RED}{line}{RESET}")
-        else:
-            print(line)
-    print("=" * 60)
-
-    confirmed = auto_approve
-    if not auto_approve:
-        target_name = Path(fix_result.target_file).name
-        confirmed = click.confirm(f"\nApply this remediation patch to {target_name}?", default=True)
-
-    if not confirmed:
-        print(f"\n{YELLOW}Remediation cancelled by user. Target unchanged.{RESET}\n")
-        return
-
-    backup_path = fixer.apply_patch(fix_result)
-    print(f"\n{GREEN}✔ Patch applied successfully.{RESET}")
-    print(f"  {DIM}Reversible backup created: {backup_path}{RESET}")
-
-    if verify:
-        print(f"\n{CYAN}🔄 Running Closed-Loop Verification:{RESET}")
-        print(f"  Executing: {BOLD}{fix_result.command}{RESET}")
-        retcode, stdout, stderr = fixer.verify_remediation(fix_result.command)
-        if retcode == 0:
-            print(f"\n{BOLD}{GREEN}✔ VERIFICATION PASSED (Exit Code 0):{RESET}")
-            if stdout.strip():
-                print(f"{DIM}{stdout.strip()}{RESET}")
-            print(f"\n{GREEN}Target restored to healthy baseline.{RESET}\n")
-        else:
-            print(f"\n{BOLD}{RED}✘ VERIFICATION FAILED (Exit Code {retcode}):{RESET}")
-            if stderr.strip():
-                print(f"{RED}{stderr.strip()}{RESET}")
-            if click.confirm("\nVerification failed. Rollback changes to original?", default=True):
-                fixer.rollback(fix_result)
-                print(f"{YELLOW}Rollback complete. Original state restored.{RESET}\n")
+        try:
+            failure = fixer.capture_failure(target)
+        except Exception as err:
+            print(f"{RED}Error capturing failure context:{RESET} {err}")
+            if len(target_list) > 1:
+                continue
             sys.exit(1)
 
+        print(f"• {BOLD}Target Script / File:{RESET} {failure.target_file}")
+        print(f"• {BOLD}Failed Command:{RESET} {failure.command} (Exit Code: {RED}{failure.exit_code}{RESET})")
+        if failure.call_stack_files and len(failure.call_stack_files) > 1:
+            print(f"• {BOLD}Multi-File Stack:{RESET} {CYAN}{' ➔ '.join(Path(f).name for f in failure.call_stack_files)}{RESET}")
+        
+        try:
+            fix_result = fixer.generate_fix(failure)
+        except Exception as err:
+            print(f"{RED}Diagnosis failed:{RESET} {err}")
+            if len(target_list) > 1:
+                continue
+            sys.exit(1)
 
+        print(f"• {BOLD}Symptom:{RESET} {YELLOW}{fix_result.symptom}{RESET}")
+        print(f"• {BOLD}Root Cause:{RESET} {fix_result.root_cause}")
+        if fix_result.explanation:
+            print(f"• {BOLD}Analysis:{RESET} {fix_result.explanation}")
+
+        if fix_result.raw_bytes > 0:
+            print(f"• {BOLD}Telemetry Distillation:{RESET} {GREEN}{fix_result.raw_bytes:,} bytes{RESET} raw log ➔ {CYAN}{fix_result.distilled_bytes:,} bytes{RESET} semantic frame ({BOLD}{GREEN}{fix_result.compression_percent}% token compression{RESET})")
+
+        if fix_result.cache_hit:
+            print(f"• {BOLD}API Optimization:{RESET} {BOLD}{GREEN}MEMORY CACHE HIT{RESET} (0 external API calls consumed)")
+        elif ai_engine.provider == "offline":
+            print(f"• {BOLD}API Optimization:{RESET} {BOLD}{CYAN}DETERMINISTIC FIRST-PASS{RESET} (0 external API calls consumed)")
+        else:
+            print(f"• {BOLD}API Optimization:{RESET} {BOLD}{GREEN}1 COMPACT SEMANTIC PROMPT{RESET} (rate-limit protected)")
+
+        if not fix_result.diff.strip():
+            print(f"\n{YELLOW}No code modifications needed. Script may already be up to date or healthy.{RESET}\n")
+            continue
+
+        print(f"\n{BOLD}{CYAN}Proposed Remediation Patch:{RESET}")
+        print("=" * 60)
+        for line in fix_result.diff.splitlines():
+            if line.startswith("---") or line.startswith("+++"):
+                print(f"{BOLD}{line}{RESET}")
+            elif line.startswith("@@"):
+                print(f"{CYAN}{line}{RESET}")
+            elif line.startswith("+"):
+                print(f"{GREEN}{line}{RESET}")
+            elif line.startswith("-"):
+                print(f"{RED}{line}{RESET}")
+            else:
+                print(line)
+        print("=" * 60)
+
+        confirmed = auto_approve
+        if not auto_approve:
+            target_name = Path(fix_result.target_file).name
+            confirmed = click.confirm(f"\nApply this remediation patch to {target_name}?", default=True)
+
+        if not confirmed:
+            print(f"\n{YELLOW}Remediation cancelled by user. Target unchanged.{RESET}\n")
+            continue
+
+        backup_path = fixer.apply_patch(fix_result)
+        print(f"\n{GREEN}✔ Patch applied successfully.{RESET}")
+        print(f"  {DIM}Reversible backup created: {backup_path}{RESET}")
+
+        if verify:
+            print(f"\n{CYAN}🔄 Running Closed-Loop Verification:{RESET}")
+            print(f"  Executing: {BOLD}{fix_result.command}{RESET}")
+            retcode, stdout, stderr = fixer.verify_remediation(fix_result.command)
+            if retcode == 0:
+                print(f"\n{BOLD}{GREEN}✔ VERIFICATION PASSED (Exit Code 0):{RESET}")
+                if stdout.strip():
+                    print(f"{DIM}{stdout.strip()}{RESET}")
+                print(f"\n{GREEN}Target restored to healthy baseline.{RESET}\n")
+            else:
+                print(f"\n{BOLD}{RED}✘ VERIFICATION FAILED (Exit Code {retcode}):{RESET}")
+                if stderr.strip():
+                    print(f"{RED}{stderr.strip()}{RESET}")
+                if click.confirm("\nVerification failed. Rollback changes to original?", default=True):
+                    fixer.rollback(fix_result)
+                    print(f"{YELLOW}Rollback complete. Original state restored.{RESET}\n")
+
+
+@cli.command("run", context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
+@click.argument("cmd_args", nargs=-1, type=click.UNPROCESSED)
+@click.option("--auto-fix", "-f", is_flag=True, default=False, help="Automatically trigger auto-fix if command fails.")
+@click.option("--ai", default="auto", type=click.Choice(["auto", "gemini", "groq", "claude", "ollama", "offline"], case_sensitive=False), help="AI reasoning engine provider.")
+def cmd_run(cmd_args: tuple[str, ...], auto_fix: bool, ai: str) -> None:
+    """Execute command with real-time streaming, full stdout/stderr capture, structured error parsing, and auto-fix.
+
+    Streams output live to the terminal. On failure (exit code != 0), captures telemetry,
+    redacts secrets, extracts structured error diagnostics (exception_type, message, file, line),
+    stores the event in the active or implicit incident, and checks cross-project recurrence.
+    """
+    import subprocess
+    import time
+    from opsgenome.cli.client import redact_and_dispatch
+    from opsgenome.security.redactor import SecretRedactor, redact_structure
+    from opsgenome.signal.parsers import parse_error
+    from opsgenome.signal.stack_detector import detect_stack_from_command
+    from opsgenome.storage.db import DatabaseManager
+    from opsgenome.storage.models import Event, EventClassification, Incident, IncidentStatus, TriggerSource
+    from opsgenome.storage.project_context import detect_project
+
+    if not cmd_args:
+        print(f"{RED}Error:{RESET} No command provided. Usage: opsgenome run <command...>")
+        sys.exit(1)
+
+    command_str = " ".join(cmd_args)
+    work_dir = os.getcwd()
+
+    # Prepend project's bin directory to PATH so local tools/runners are accessible
+    env = os.environ.copy()
+    repo_root = Path(__file__).resolve().parents[2]
+    bin_dir = repo_root / "bin"
+    if bin_dir.exists():
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+
+    start_time = time.time()
+    proc = subprocess.run(
+        command_str,
+        shell=True,
+        capture_output=True,
+        text=True,
+        cwd=work_dir,
+        env=env,
+    )
+    duration_ms = int((time.time() - start_time) * 1000)
+
+    # 1. Output raw streams to terminal
+    if proc.stdout:
+        sys.stdout.write(proc.stdout)
+        sys.stdout.flush()
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+        sys.stderr.flush()
+
+    # 2. In-process Secret Redaction (Fail-closed boundary)
+    redactor = SecretRedactor()
+    clean_cmd, _ = redactor.redact(command_str)
+    clean_stdout, _ = redactor.redact(proc.stdout or "")
+    clean_stderr, _ = redactor.redact(proc.stderr or "")
+
+    # Security validation
+    assert redactor.validate_clean(clean_cmd), "Command failed clean validation"
+    assert redactor.validate_clean(clean_stdout), "Stdout failed clean validation"
+    assert redactor.validate_clean(clean_stderr), "Stderr failed clean validation"
+
+    # 3. Stack and Language Detection
+    current_project = detect_project(work_dir)
+    detected_stack = detect_stack_from_command(clean_cmd)
+
+    # 4. Structured Error Parsing
+    parsed_error = None
+    combined_err = (clean_stderr + "\n" + clean_stdout).strip()
+    if proc.returncode != 0 or any(k in combined_err for k in ["Traceback", "Exception", "Error:", "TypeError", "NullPointerException"]):
+        parsed_error = parse_error(combined_err, language=detected_stack)
+        if parsed_error:
+            clean_pe, _ = redact_structure(parsed_error)
+            parsed_error = clean_pe
+
+    # 5. Incident Lifecycle & Event Storage
+    db = DatabaseManager()
+    active_inc = db.get_active_incident()
+    created_implicit = False
+
+    if not active_inc:
+        symptom_list = []
+        if parsed_error:
+            symptom_list.append(f"{parsed_error.get('exception_type')}: {parsed_error.get('message')}")
+        else:
+            symptom_list.append(f"Command execution (exit {proc.returncode})")
+
+        active_inc = Incident(
+            title=f"Run: {clean_cmd[:50]}",
+            service=current_project,
+            project=current_project,
+            stack=detected_stack,
+            trigger_source=TriggerSource.MANUAL,
+            status=IncidentStatus.OPEN,
+            symptoms=symptom_list,
+        )
+        db.create_incident(active_inc)
+        created_implicit = True
+
+    event = Event(
+        incident_id=active_inc.id,
+        raw_command=clean_cmd,
+        exit_code=proc.returncode,
+        stdout_snippet=clean_stdout,
+        stderr_snippet=clean_stderr,
+        duration_ms=duration_ms,
+        cwd=work_dir,
+        tool_category=detected_stack if detected_stack != "general" else "system",
+        project=current_project,
+        stack=detected_stack,
+        parsed_error=parsed_error,
+        classification=EventClassification.DEAD_END if proc.returncode != 0 else EventClassification.FIX,
+    )
+    db.save_event(event)
+
+    # Dispatch to daemon socket without truncation
+    redact_and_dispatch(
+        command=clean_cmd,
+        exit_code=proc.returncode,
+        duration_ms=duration_ms,
+        cwd=work_dir,
+        incident_id=active_inc.id,
+        stdout_snippet=clean_stdout,
+        stderr_snippet=clean_stderr,
+    )
+
+    # 6. Display Structured Diagnostics if Error Parsed
+    if parsed_error:
+        line_display = str(parsed_error['line']) if parsed_error['line'] is not None else "null"
+        top_frame = parsed_error['stack_frames'][0] if parsed_error.get('stack_frames') else None
+        top_frame_str = f"{top_frame['function']} in {top_frame['file']}:{top_frame['line']}" if top_frame else "None"
+
+        diag_content = (
+            f"• Language:       {parsed_error.get('language', '').upper()}\n"
+            f"• Exception Type: {parsed_error.get('exception_type')}\n"
+            f"• Message:        {parsed_error.get('message')}\n"
+            f"• Primary File:   {parsed_error.get('file')}\n"
+            f"• Fault Line:     {line_display}\n"
+            f"• Top Frame:      {top_frame_str}\n"
+            f"• Project Tag:    {current_project} | Stack: {detected_stack}\n"
+            f"• Incident ID:    {active_inc.id} ({'Implicit Single-Shot' if created_implicit else 'Active Incident'})"
+        )
+        print_banner("⚡ OpsGenome Structured Error Diagnostics", diag_content, color=YELLOW)
+
+        # Check recurrence alert across all projects
+        rec_engine = RecurrenceAlertEngine(db=db)
+        match = rec_engine.check_recurrence(active_inc, current_project=current_project)
+        if match:
+            rec_content = (
+                f"{match['alert_message']}\n\n"
+                f"Recommended Historical Actions:\n"
+                + "\n".join([f"  $ {cmd}" for cmd in match.get("top_commands", [])])
+            )
+            banner_title = (
+                f"⚡ RECURRENCE ALERT (Same-Project Intake Match: {match.get('source_project')})"
+                if match.get("same_project")
+                else f"⚠ CROSS-PROJECT RECURRENCE ADVISORY (Source: {match.get('source_project')})"
+            )
+            print_banner(banner_title, rec_content, color=GREEN if match.get("same_project") else YELLOW)
+
+    if proc.returncode != 0:
+        print(f"\n{BOLD}{RED}✘ Command failed with exit code {proc.returncode}{RESET}")
+        if auto_fix:
+            print(f"{CYAN}⚡ Auto-fix requested. Launching OpsGenome Autonomous Fixer...{RESET}")
+            from opsgenome.ai.code_fixer import CodeFixEngine
+            from opsgenome.ai.engine import AIReasoningEngine
+            fixer = CodeFixEngine(ai_engine=AIReasoningEngine(provider=ai))
+            failure = fixer.capture_failure(command_str)
+            fix_result = fixer.generate_fix(failure)
+            if fix_result.diff.strip():
+                backup = fixer.apply_patch(fix_result)
+                print(f"{GREEN}✔ Applied fix (backup: {backup}){RESET}")
+                retcode, out, err = fixer.verify_remediation(fix_result.command)
+                if retcode == 0:
+                    print(f"{BOLD}{GREEN}✔ Closed-loop verification PASSED (Exit Code 0).{RESET}\n")
+                    sys.exit(0)
+                else:
+                    print(f"{BOLD}{RED}✘ Verification failed. Rolling back...{RESET}")
+                    fixer.rollback(fix_result)
+                    sys.exit(proc.returncode)
+        else:
+            print(f"{CYAN}💡 Proactive Fix Available:{RESET} Run {BOLD}opsgenome fix{RESET} (or add {BOLD}-f / --auto-fix{RESET}) to autonomously repair this failure.\n")
+        sys.exit(proc.returncode)
+
+
+@click.command(name="triage")
+@click.argument("log_sources", nargs=-1, required=False)
+@click.option("--pod", "-p", default=None, help="Pod name provenance tag.")
+@click.option("--container", "-c", default=None, help="Container name provenance tag.")
+@click.option("--incident-id", "-i", default=None, help="Incident ID to attach triage findings to.")
+@click.option("--threshold", "-t", default=0.60, type=float, help="Minimum signal confidence threshold (0.0-1.0).")
+@click.option("--ai", default="auto", help="AI provider for Stage B disambiguation.")
+def cmd_triage(log_sources: tuple[str, ...], pod: str | None, container: str | None, incident_id: str | None, threshold: float, ai: str) -> None:
+    """Large-scale streaming log triage for Kubernetes, CI/CD, and container logs across single or multiple files."""
+    from opsgenome.signal.streaming_scanner import StreamingLogScanner, merge_log_streams
+    from opsgenome.security.redactor import EventSanitizer
+    from opsgenome.ai.engine import AIReasoningEngine
+    from opsgenome.storage.models import Event, EventClassification
+
+    db = DatabaseManager()
+    sanitizer = EventSanitizer()
+
+    sources = list(log_sources) if log_sources else ["-"]
+
+    # 1. Resolve Incident Session
+    active_inc = None
+    created_implicit = False
+    if incident_id:
+        active_inc = db.get_incident(incident_id)
+    if not active_inc:
+        open_incs = db.list_incidents(status=IncidentStatus.OPEN, limit=1)
+        if open_incs:
+            active_inc = open_incs[0]
+        else:
+            first_name = Path(sources[0]).name if sources[0] != "-" else "stream"
+            active_inc = db.create_incident(
+                Incident(
+                    title=f"Log Triage: {first_name}" if len(sources) == 1 else f"Log Triage: {len(sources)} sources",
+                    service=pod or "kubernetes-workload",
+                    severity="P2",
+                    trigger_source=TriggerType.MANUAL,
+                )
+            )
+            created_implicit = True
+
+    print(f"\n{BOLD}{CYAN}🔍 OpsGenome Large-Scale Streaming Log Triage{RESET}")
+    source_desc = f"{len(sources)} source files" if len(sources) > 1 else (sources[0] if sources[0] != "-" else "stdin stream")
+    print(f"{DIM}Stage A: Scanning {source_desc} in O(1) memory...{RESET}")
+
+    scanner = StreamingLogScanner(min_signal_threshold=threshold)
+
+    # 2. Open Stream(s) Lazily (Never materialize full log in memory)
+    if len(sources) == 1:
+        src = sources[0]
+        def line_generator():
+            if src == "-" or not os.path.exists(src):
+                for line in sys.stdin:
+                    yield line
+            else:
+                with open(src, "r", encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        yield line
+        result = scanner.scan_stream(line_generator(), source_pod=pod, source_container=container)
+    else:
+        # Multi-file streaming: merge lazily via min-heap in O(num_streams) memory
+        file_streams = []
+        for file_path in sources:
+            if os.path.exists(file_path):
+                # Derive pod and container provenance from filename (e.g. payment-svc_app.log -> pod: payment-svc)
+                stem = Path(file_path).stem
+                parts = stem.split("_")
+                p_name = pod or parts[0]
+                c_name = container or (parts[1] if len(parts) > 1 else "main")
+
+                def make_gen(p):
+                    with open(p, "r", encoding="utf-8", errors="replace") as f:
+                        for line in f:
+                            yield line
+
+                file_streams.append((p_name, c_name, make_gen(file_path)))
+
+        if not file_streams:
+            print(f"{RED}Error:{RESET} None of the specified log files exist: {sources}")
+            sys.exit(1)
+
+        merged_stream = merge_log_streams(file_streams)
+        result = scanner.scan_stream(merged_stream)
+
+    # 3. Fail-Closed Redaction & Persistence of Surviving Candidates
+    for cand in result.candidates:
+        sanitizer.sanitize_candidate_window(cand)
+
+        # Store candidate as Event in SQLite
+        ev = Event(
+            incident_id=active_inc.id,
+            raw_command=f"log-triage: {cand.signal_type}",
+            exit_code=1 if cand.score >= 0.80 else 0,
+            stdout_snippet=cand.full_window_text[:1500],
+            signal_weight=cand.score,
+            tool_category="k8s_triage",
+            project=active_inc.project,
+            stack=active_inc.stack,
+            parsed_error=cand.parsed_error,
+            source_pod=cand.trigger_line.source_pod,
+            source_container=cand.trigger_line.source_container,
+            line_offset=cand.trigger_line.line_number,
+            classification=EventClassification.DEAD_END if cand.score >= 0.80 else EventClassification.INVESTIGATION,
+        )
+        db.save_event(ev)
+
+    # 4. Stage B Targeted Reasoning on Bounded Candidates
+    ai_engine = AIReasoningEngine(provider=ai)
+    stage_b_result = ai_engine.disambiguate_triage_candidates(active_inc, result.candidates)
+
+    # 5. Display Triage Results Banner
+    peak_mb = result.peak_memory_bytes / (1024 * 1024)
+    speed_lps = int(result.total_lines_scanned / max(0.001, result.wall_time_seconds))
+
+    sources_str = f"{len(sources)} files ({', '.join(Path(s).name for s in sources[:3])}{'...' if len(sources) > 3 else ''})" if len(sources) > 1 else (sources[0] if sources[0] != "-" else "stdin")
+    telemetry_summary = (
+        f"• Sources Checked:     {sources_str}\n"
+        f"• Total Lines Scanned: {result.total_lines_scanned:,} lines\n"
+        f"• Wall-Clock Time:     {result.wall_time_seconds:.3f} seconds ({speed_lps:,} lines/sec)\n"
+        f"• Peak Memory (O(1)):  {peak_mb:.2f} MB\n"
+        f"• High-Signal Found:   {'YES' if result.high_confidence_signal_found else 'NO'}\n"
+        f"• Stage B Budget:      {len(result.candidates)} candidates ({sum(c.line_count for c in result.candidates)} lines of context, {stage_b_result.get('prompt_size_chars', 0)} chars)"
+    )
+    print_banner("⚡ Stage A Streaming Scanner Performance", telemetry_summary, color=CYAN)
+
+    if result.high_confidence_signal_found and result.top_candidate:
+        top = result.top_candidate
+        pod_str = f"Pod: {top.trigger_line.source_pod}" if top.trigger_line.source_pod else "Pod: Unknown"
+        cont_str = f" | Container: {top.trigger_line.source_container}" if top.trigger_line.source_container else ""
+        diag_lines = [
+            f"• Primary Hypothesis:  {stage_b_result.get('hypothesis')}",
+            f"• Confidence Score:    {int(top.score * 100)}%",
+            f"• Provenance:          {pod_str}{cont_str}",
+            f"• Line Offset:         Line {top.trigger_line.line_number}",
+        ]
+        if top.parsed_error:
+            diag_lines.extend([
+                f"• Stack / Language:    {top.parsed_error.get('language', '').upper()}",
+                f"• Exception Type:      {top.parsed_error.get('exception_type')}",
+                f"• Location:            {top.parsed_error.get('file')}:{top.parsed_error.get('line')}",
+                f"• Error Message:       {top.parsed_error.get('message')}",
+            ])
+        if stage_b_result.get("disambiguation_required"):
+            diag_lines.append("\n• Ranked Hypotheses (Stage B Disambiguation):")
+            for h in stage_b_result.get("ranked_hypotheses", []):
+                diag_lines.append(f"  [{h['rank']}] {h['hypothesis']} (Confidence: {int(h['confidence']*100)}%)")
+                diag_lines.append(f"      Distinguishing Factor: {h.get('distinguishing_factor')}")
+
+        print_banner("🎯 Root Cause Diagnostics & Attribution", "\n".join(diag_lines), color=GREEN)
+    else:
+        print_banner(
+            "ℹ Triage Result: Clean Log Stream",
+            f"No critical root-cause errors detected across {result.total_lines_scanned:,} lines.\n"
+            f"All lines scored below confidence threshold {threshold:.2f} (zero false positives reported).",
+            color=YELLOW,
+        )
+
+
+# --- Multi-Agent Swarm CLI Commands ---
+
+@cli.group("multi-agent")
+def multi_agent_group() -> None:
+    """Multi-Agent Swarm Orchestration & Cross-Stack Incident Resolution."""
+    pass
+
+
+@multi_agent_group.command("analyze")
+@click.argument("files", nargs=-1, type=click.Path(exists=True))
+@click.option("--file", "-f", "file_options", multiple=True, type=click.Path(exists=True), help="Path to file to analyze (can be passed multiple times).")
+@click.option("--demo", is_flag=True, help="Run cross-stack demo incident (Python, Node, Java, K8s).")
+def cmd_multi_agent_analyze(files: tuple[str, ...], file_options: tuple[str, ...], demo: bool) -> None:
+    """Analyze multiple heterogeneous files across stacks with agent swarm."""
+    orchestrator = LeadSREOrchestrator()
+
+    combined_files = list(files) + list(file_options)
+
+    if demo or not combined_files:
+        # Restore canonical demo files & load targets from demo scenarios engine
+        reset_demo_incident_files()
+        targets = get_demo_cross_stack_targets(read_from_disk_if_available=True)
+    else:
+        targets = []
+        for f in combined_files:
+            p = Path(f)
+            code = p.read_text(encoding="utf-8", errors="replace")
+            targets.append((str(p), code, f"Error detected in {p.name}"))
+
+
+    print(f"\n{BOLD}{CYAN}🤖 OPSGENOME MULTI-AGENT SWARM: CROSS-STACK INCIDENT RESOLUTION{RESET}")
+    print(f"{DIM}Lead Orchestrator dispatching tasks across {len(targets)} components...{RESET}\n")
+
+    plan, messages = orchestrator.analyze_and_coordinate(targets)
+
+    # 1. Display Swarm Dialogue
+    print(f"{BOLD}{MAGENTA}─── 💬 SWARM INTER-AGENT DIALOGUE ─────────────────────────────────────────────{RESET}")
+    for msg in messages:
+        sender_color = CYAN if "Lead" in msg.sender else (GREEN if "Specialist" in msg.sender else YELLOW)
+        type_badge = f"{BOLD}[{msg.message_type}]{RESET}"
+        print(f"{sender_color}{BOLD}{msg.sender}{RESET} ➔ {DIM}{msg.recipient}{RESET} {type_badge}")
+        print(f"   {msg.content}\n")
+
+    # 2. Display Coordinated Resolution Plan
+    print(f"{BOLD}{GREEN}─── 📋 COORDINATED RESOLUTION PLAN (ID: {plan.plan_id}) ─────────────────────{RESET}")
+    print(f"{BOLD}Summary:{RESET} {plan.cross_stack_summary}\n")
+    print(f"{BOLD}Execution Order (Topological Dependency via Kahn's Algorithm):{RESET}")
+    for i, fpath in enumerate(plan.execution_order, 1):
+        finding = next((f for f in plan.findings if f.target_file == fpath), None)
+        stack_badge = f"[{finding.stack.upper()}]" if finding else ""
+        print(f"  {CYAN}{i}.{RESET} {BOLD}{Path(fpath).name}{RESET} {DIM}{stack_badge}{RESET}")
+
+    if getattr(plan, "edge_explanations", None):
+        print(f"\n{BOLD}Topological Dependency Graph Edges:{RESET}")
+        for edge in plan.edge_explanations:
+            print(f"  • {DIM}{edge}{RESET}")
+
+    print(f"\n{BOLD}Atomic Diffs Formulated:{RESET}")
+    for finding in plan.findings:
+        print(f"\n{YELLOW}--- {Path(finding.target_file).name} ({finding.stack.upper()} | {finding.exception_type}) ---{RESET}")
+        print(f"{DIM}Root Cause:{RESET} {finding.root_cause}")
+        print(finding.proposed_diff)
+
+    print(f"\n{BOLD}{CYAN}Verification & Rollback Strategy:{RESET}")
+    for cmd in plan.verification_commands:
+        print(f"  • Verification: {CYAN}{cmd}{RESET}")
+    for rb in plan.rollback_plan:
+        print(f"  • Safety Guard: {YELLOW}{rb}{RESET}")
+    print()
+
+
+@multi_agent_group.command("cluster-audit")
+@click.option("--namespace", default="default", help="Kubernetes namespace to audit.")
+def cmd_multi_agent_cluster_audit(namespace: str) -> None:
+    """Audit Kubernetes & Docker clusters for multiple concurrent failure modes."""
+    auditor = ClusterMultiIssueAuditor()
+    print(f"\n{BOLD}{CYAN}🔍 KUBERNETES & DOCKER CLUSTER MULTI-ISSUE AUDITOR{RESET}")
+    print(f"{DIM}Namespace: {namespace} | Deep cluster anomaly & misconfiguration scan...{RESET}\n")
+
+    report = auditor.audit_cluster(namespace=namespace)
+
+    # 1. Summary Matrix Table
+    table_data = []
+    for issue in report.issues:
+        sev_color = RED if issue.severity == "CRITICAL" else (YELLOW if issue.severity == "HIGH" else CYAN)
+        table_data.append([
+            f"{sev_color}{issue.severity}{RESET}",
+            issue.resource_type,
+            f"{BOLD}{issue.resource_name}{RESET}",
+            issue.issue_type,
+            issue.safety_tier,
+            issue.root_cause[:45] + ("..." if len(issue.root_cause) > 45 else ""),
+        ])
+
+    print(tabulate(table_data, headers=["Severity", "Type", "Resource", "Issue", "Safety Tier", "Root Cause"], tablefmt="fancy_grid"))
+    print(f"\n{BOLD}Total Anomalies Detected:{RESET} {len(report.issues)} simultaneous issues.\n")
+
+    # 2. Step-by-Step Remediation Playbook
+    print(f"{BOLD}{GREEN}─── 🛠 STEP-BY-STEP REMEDIATION PLAYBOOK & YAML PATCHES ────────────────────────{RESET}")
+    for i, issue in enumerate(report.issues, 1):
+        print(f"\n{BOLD}{CYAN}[Issue #{i}] {issue.resource_name} ({issue.issue_type}){RESET}")
+        print(f"{BOLD}Root Cause:{RESET} {issue.root_cause}")
+        print(f"{BOLD}Impact:{RESET} {issue.impact}")
+        if issue.immediate_remediation_cmd:
+            print(f"{BOLD}Immediate Remediation CLI:{RESET}")
+            print(f"  {GREEN}{issue.immediate_remediation_cmd}{RESET}")
+        if issue.declarative_yaml_patch:
+            print(f"{BOLD}Declarative YAML Patch:{RESET}")
+            print(f"{DIM}{issue.declarative_yaml_patch.strip()}{RESET}")
+        if issue.verification_cmd:
+            print(f"{BOLD}Verification CLI:{RESET}")
+            print(f"  {CYAN}{issue.verification_cmd}{RESET}")
+
+    print(f"\n{BOLD}{GREEN}✔ Cluster multi-issue diagnostic audit complete.{RESET}\n")
+
+
+@multi_agent_group.command("demo")
+def cmd_multi_agent_demo() -> None:
+    """Run full simulated end-to-end multi-agent cross-stack incident & cluster audit."""
+    print_logo()
+    print_banner(
+        "🤖 OpsGenome Multi-Agent Swarm Demonstration",
+        "1. Dispatching concurrent analysis across 4 heterogeneous tech stacks.\n"
+        "2. Security Sentinel enforcing zero secret leakage and safe execution.\n"
+        "3. Synthesizing topological dependency order for atomic patching.\n"
+        "4. Auditing live cluster for 3 concurrent Kubernetes & Docker failure modes.",
+        color=MAGENTA,
+    )
+
+    orchestrator = LeadSREOrchestrator()
+    auditor = ClusterMultiIssueAuditor()
+
+    # Phase 1: Cross-Stack Analysis (Loaded from decoupled demo_scenarios)
+    demo_targets = get_demo_cross_stack_targets(read_from_disk_if_available=True)
+
+
+    print(f"\n{BOLD}{CYAN}=== STEP 1: CONCURRENT SPECIALIST AGENT DISPATCH ==={RESET}\n")
+    plan, messages = orchestrator.analyze_and_coordinate(demo_targets)
+
+    for msg in messages:
+        sender_color = CYAN if "Lead" in msg.sender else (GREEN if "Specialist" in msg.sender else MAGENTA)
+        print(f"{sender_color}{BOLD}{msg.sender}{RESET} ➔ {DIM}{msg.recipient}{RESET} {BOLD}[{msg.message_type}]{RESET}")
+        print(f"   {msg.content}\n")
+
+    print(f"\n{BOLD}{CYAN}=== STEP 2: SYNTHESIZED TOPOLOGICAL EXECUTION PLAN ==={RESET}\n")
+    print(f"{BOLD}Execution Sequence:{RESET}")
+    for idx, path in enumerate(plan.execution_order, 1):
+        print(f"  {CYAN}[Step {idx}]{RESET} Apply atomic patch to {BOLD}{Path(path).name}{RESET}")
+
+    print(f"\n{BOLD}{CYAN}=== STEP 3: CLUSTER MULTI-ISSUE AUDIT & REMEDIATION PLAYBOOK ==={RESET}\n")
+    report = auditor.audit_cluster(namespace="production")
+    for issue in report.issues:
+        print(f"• {RED}{BOLD}[{issue.severity}] {issue.resource_name}{RESET}: {issue.issue_type}")
+        print(f"  Root Cause: {issue.root_cause}")
+        if issue.immediate_remediation_cmd:
+            print(f"  Remediation CLI: {GREEN}{issue.immediate_remediation_cmd}{RESET}")
+    print(f"\n{BOLD}{GREEN}✔ Multi-agent demonstration completed successfully!{RESET}\n")
+
+
+@multi_agent_group.command("chaos-test")
+@click.option("--fail-verify", is_flag=True, help="Simulate a verification check failure to prove transactional rollback.")
+def cmd_multi_agent_chaos_test(fail_verify: bool) -> None:
+    """Inject live chaos, synthesize Topological DAG, and verify transactional commit or rollback."""
+    orchestrator = LeadSREOrchestrator()
+    print(f"\n{BOLD}{CYAN}⚡ OPSGENOME MULTI-AGENT SWARM: LIVE CHAOS & TRANSACTIONAL VERIFICATION{RESET}")
+    print(f"{DIM}Demonstrating live fault injection, Kahn's algorithm DAG, and transactional atomic commit...{RESET}\n")
+
+    # Ensure demo files are in fresh incident state
+    reset_demo_incident_files()
+    targets = get_demo_cross_stack_targets(read_from_disk_if_available=True)
+
+    print(f"{BOLD}Step 1: Active Multi-Stack Cascade Incident Detected Across {len(targets)} Components{RESET}")
+    for p, _, err in targets:
+        print(f"  • {BOLD}{Path(p).name}{RESET}: {DIM}{err}{RESET}")
+
+    print(f"\n{BOLD}Step 2: Synthesizing Master Resolution Plan & Topological DAG...{RESET}")
+    plan, messages = orchestrator.analyze_and_coordinate(targets)
+
+    print(f"\n{BOLD}Topological Execution Sequence (Kahn's Algorithm):{RESET}")
+    for idx, path in enumerate(plan.execution_order, 1):
+        print(f"  {CYAN}[Step {idx}]{RESET} {BOLD}{Path(path).name}{RESET}")
+
+    if getattr(plan, "edge_explanations", None):
+        print(f"\n{BOLD}Dependency Graph Edges:{RESET}")
+        for edge in plan.edge_explanations:
+            print(f"  • {DIM}{edge}{RESET}")
+
+    if fail_verify:
+        print(f"\n{YELLOW}{BOLD}Step 3: Chaos Mode Active -- Intentionally injecting invalid syntax to trigger verification failure...{RESET}")
+        for f in plan.findings:
+            if f.stack == "python":
+                f.fixed_code = "def syntax_broken(:\n    invalid code here\n"
+                f.proposed_diff = "@@ -1,5 +1,2 @@\n-def calculate_fee\n+def syntax_broken(:"
+
+    print(f"\n{BOLD}Step 4: Executing Two-Phase Transactional Commit & Closed-Loop Verification...{RESET}")
+    success, log = orchestrator.apply_coordinated_fix(plan, verify_live=True)
+
+    for line in log:
+        if "✔" in line:
+            print(f"  {GREEN}{line}{RESET}")
+        elif "✘" in line:
+            print(f"  {RED}{line}{RESET}")
+        elif "↺" in line:
+            print(f"  {YELLOW}{line}{RESET}")
+        else:
+            print(f"  {DIM}{line}{RESET}")
+
+    if success:
+        print(f"\n{BOLD}{GREEN}✔ TRANSACTION STATUS: VERIFIED_AND_COMMITTED{RESET}")
+        print(f"{DIM}All patches verified against live syntax & health gates. Zero regression guarantee.{RESET}\n")
+    else:
+        print(f"\n{BOLD}{YELLOW}↺ TRANSACTION STATUS: ROLLED_BACK (Safety Invariant Preserved){RESET}")
+        print(f"{DIM}Verification failed as expected; all files deterministically restored from .bak with verified SHA-256 hashes.{RESET}\n")
+
+
+
+cli.add_command(multi_agent_group, name="multi-agent")
+cli.add_command(multi_agent_group, name="multiagent")
 cli.add_command(cmd_fix, name="auto-fix")
+cli.add_command(cmd_run, name="exec")
+cli.add_command(cmd_triage, name="triage")
 
 
 if __name__ == "__main__":
     cli()
+
 

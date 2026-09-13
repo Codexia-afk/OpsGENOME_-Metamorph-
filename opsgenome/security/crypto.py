@@ -23,14 +23,16 @@ class LocalCryptoManager:
             self.key_dir = Path(key_dir)
         elif "OPSGENOME_HOME" in os.environ:
             self.key_dir = Path(os.environ["OPSGENOME_HOME"])
+        elif "OPSGENOME_DB_PATH" in os.environ and os.environ["OPSGENOME_DB_PATH"] != ":memory:":
+            self.key_dir = Path(os.environ["OPSGENOME_DB_PATH"]).parent
         else:
             try:
                 home_dir = Path.home() / ".opsgenome"
                 home_dir.mkdir(parents=True, exist_ok=True)
                 self.key_dir = home_dir
             except (PermissionError, OSError):
-                # Fallback to local workspace directory
-                local_dir = Path("./.opsgenome_data")
+                # Fallback to project root directory
+                local_dir = Path(__file__).resolve().parents[2] / ".opsgenome_data"
                 local_dir.mkdir(parents=True, exist_ok=True)
                 self.key_dir = local_dir
 

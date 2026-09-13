@@ -33,3 +33,9 @@ _opsgenome_prompt_cmd() {
 
 PROMPT_COMMAND="_opsgenome_prompt_cmd; $PROMPT_COMMAND"
 trap '_opsgenome_preexec' DEBUG
+
+# Interactive runner capturing full stdout/stderr with instant auto-fix capability
+ops-run() {
+    python3 -m opsgenome.cli.main run "$@"
+}
+alias opsrun="python3 -m opsgenome.cli.main run"

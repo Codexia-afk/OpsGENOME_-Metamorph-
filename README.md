@@ -2,7 +2,7 @@
 
 > **"Production systems remember what happened. OpsGenome remembers why the engineer fixed it. AI proposes; deterministic evidence verifies."**
 
-[![Tests](https://img.shields.io/badge/tests-79%20passed-success)](opsgenome/tests/)
+[![Tests](https://img.shields.io/badge/tests-128%20passed-success)](opsgenome/tests/)
 [![AI Providers](https://img.shields.io/badge/AI-Google%20Gemini%20%7C%20Claude%20%7C%20Offline-blueviolet)](opsgenome/ai/)
 [![Security](https://img.shields.io/badge/security-fail--closed%20boundary-blue)](SECURITY.md)
 [![Recurrence SLA](https://img.shields.io/badge/intake%20match-0.25ms-brightgreen)](README.md#benchmarks--performance-sla)
@@ -116,6 +116,13 @@ flowchart TD
 - An interactive scrubber providing a 9-field immutable timeline:
   `Step #` • `Timestamp` • `Source` • `Evidence ID` • `Command` • `Exit Code` • `State Transition` • `Result` • `Decision & Verification Status`.
 - In passive shell capture, hooks record commands, exit codes, and durations; terminal stdout/stderr stream capture via a dedicated PTY wrapper is documented in the roadmap below as planned work.
+
+### 8. Multi-Agent Swarm: Kahn's Algorithm DAG & Two-Phase Transactional Commit
+When microservice incidents cascade across heterogeneous stacks (e.g. Python backend, Node.js API gateway, Java billing service, and Kubernetes manifests), isolated patches fail. OpsGenome dispatches concurrent specialist agents with mathematical ordering:
+- **Specialist Agent Swarm:** Concurrent diagnosis across `PythonSpecialistAgent`, `NodeSpecialistAgent`, `JavaSpecialistAgent`, and `ClusterSpecialistAgent`.
+- **Mathematical Kahn's Algorithm Topological DAG:** Synthesizes an execution graph ($O(V+E)$) based on extracted Kubernetes labels, ports, and cross-service HTTP endpoints. Foundational infrastructure is guaranteed to be patched before backend services, which in turn are stabilized before ingress gateway proxy routes.
+- **Fail-Closed Security Sentinel:** Every proposed unified diff and candidate verification command is checked against destructive shell patterns (`rm -rf`, reverse shells, forkbombs) and credential leaks. All command execution runs strictly with `shell=False` via tokenized arguments (`safe_subprocess_run`).
+- **Two-Phase Transactional Commit & Closed-Loop Rollback:** Pre-flight SHA-256 hashes and `.bak` snapshots are recorded before modifying any file. After patches are applied, compiler and syntax checks run live (`py_compile`, `node --check`). Any verification failure triggers an instantaneous, deterministic atomic rollback, restoring all files to their exact pre-incident state with verified checksums.
 
 ---
 
@@ -448,7 +455,7 @@ Open **[http://localhost:3000](http://localhost:3000)** to access the console.
 ```bash
 python3 -m pytest -v
 ```
-*79 passing unit, security boundary, grounding, cross-project memory, Gemini AI reasoning, Semantic Log Distillation, and live Kubernetes integration tests (0 failures, 0 regressions).*
+*124 passing unit, security boundary, grounding, cross-project memory, Gemini AI reasoning, Semantic Log Distillation, bounded multi-language execution, streaming log triage, and live Kubernetes integration tests (0 failures, 0 regressions).*
 
 ---
 

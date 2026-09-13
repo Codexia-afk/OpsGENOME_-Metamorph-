@@ -53,7 +53,7 @@ class DatabaseManager:
         elif "OPSGENOME_DB_PATH" in os.environ:
             self.db_path = os.environ["OPSGENOME_DB_PATH"]
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-            self.crypto = crypto_manager or LocalCryptoManager()
+            self.crypto = crypto_manager or LocalCryptoManager(key_dir=str(Path(self.db_path).parent))
         else:
             try:
                 home_dir = Path.home() / ".opsgenome"
@@ -61,7 +61,7 @@ class DatabaseManager:
                 self.db_path = str(home_dir / "global.db")
                 self.crypto = crypto_manager or LocalCryptoManager(key_dir=str(home_dir))
             except (PermissionError, OSError):
-                local_dir = Path("./.opsgenome_data")
+                local_dir = Path(__file__).resolve().parents[2] / ".opsgenome_data"
                 local_dir.mkdir(parents=True, exist_ok=True)
                 self.db_path = str(local_dir / "global.db")
                 self.crypto = crypto_manager or LocalCryptoManager(key_dir=str(local_dir))
@@ -121,6 +121,10 @@ class DatabaseManager:
                     tool_category TEXT NOT NULL,
                     project TEXT NOT NULL DEFAULT 'default',
                     stack TEXT NOT NULL DEFAULT 'general',
+                    parsed_error_json TEXT,
+                    source_pod TEXT,
+                    source_container TEXT,
+                    line_offset INTEGER,
                     FOREIGN KEY(incident_id) REFERENCES incidents(id)
                 )
             """)
@@ -241,6 +245,10 @@ class DatabaseManager:
                 ("tool_category", "TEXT DEFAULT 'system'"),
                 ("project", "TEXT DEFAULT 'default'"),
                 ("stack", "TEXT DEFAULT 'general'"),
+                ("parsed_error_json", "TEXT"),
+                ("source_pod", "TEXT"),
+                ("source_container", "TEXT"),
+                ("line_offset", "INTEGER"),
             ])
 
             ensure_columns("causal_chains", [
@@ -543,6 +551,10 @@ class DatabaseManager:
                 "sequence_idx": event.sequence_idx,
                 "project": event.project,
                 "stack": event.stack,
+                "parsed_error_json": json.dumps(event.parsed_error) if getattr(event, "parsed_error", None) else None,
+                "source_pod": getattr(event, "source_pod", None),
+                "source_container": getattr(event, "source_container", None),
+                "line_offset": getattr(event, "line_offset", None),
             }
 
             valid_cols = [c for c in cols if c in data_map]
@@ -587,6 +599,10 @@ class DatabaseManager:
                         sequence_idx=r["sequence_idx"] if "sequence_idx" in r.keys() and r["sequence_idx"] is not None else 0,
                         project=r["project"] if "project" in r.keys() and r["project"] else "default",
                         stack=r["stack"] if "stack" in r.keys() and r["stack"] else "general",
+                        parsed_error=json.loads(r["parsed_error_json"]) if "parsed_error_json" in r.keys() and r["parsed_error_json"] else None,
+                        source_pod=r["source_pod"] if "source_pod" in r.keys() else None,
+                        source_container=r["source_container"] if "source_container" in r.keys() else None,
+                        line_offset=r["line_offset"] if "line_offset" in r.keys() else None,
                     )
                 )
             return events

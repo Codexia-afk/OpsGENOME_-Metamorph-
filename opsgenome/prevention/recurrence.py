@@ -49,6 +49,22 @@ class RecurrenceAlertEngine:
         """
         active_project = current_project or getattr(new_incident, "project", "default")
         query_text = f"{new_incident.service} {new_incident.title} {' '.join(new_incident.symptoms)}"
+
+        # Inspect if incident or its captured events contain structured parsed_error
+        parsed_error = getattr(new_incident, "parsed_error", None)
+        if not parsed_error and new_incident.id:
+            try:
+                inc_events = self.db.get_events_for_incident(new_incident.id)
+                parsed_error = next((e.parsed_error for e in inc_events if getattr(e, "parsed_error", None)), None)
+            except Exception:
+                parsed_error = None
+
+        if parsed_error:
+            pe_type = (parsed_error.get("exception_type") or "").strip()
+            pe_msg = (parsed_error.get("message") or "").strip()
+            pe_lang = (parsed_error.get("language") or "").strip()
+            query_text += f" {pe_type} {pe_msg} {pe_lang}"
+
         query_tokens = self._tokenize(query_text)
 
         # Query all runbooks across the entire global store
@@ -67,7 +83,14 @@ class RecurrenceAlertEngine:
             target_text = f"{r.service} {r.title} {r.root_cause_category} {r.symptom_signature}"
             target_tokens = self._tokenize(target_text)
 
-            sim = self.calculate_similarity(query_tokens, target_tokens) + service_boost + stack_boost
+            # Structured parsed_error boost: strong alignment on matching exception type
+            pe_boost = 0.0
+            if parsed_error and parsed_error.get("exception_type"):
+                exc_token = parsed_error["exception_type"].lower()
+                if exc_token in target_text.lower():
+                    pe_boost = 0.35
+
+            sim = self.calculate_similarity(query_tokens, target_tokens) + service_boost + stack_boost + pe_boost
             if sim > best_similarity:
                 best_similarity = sim
                 best_match = r

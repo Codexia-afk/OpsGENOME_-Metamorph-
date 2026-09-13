@@ -1,0 +1,15 @@
+2026-09-13T04:12:01.102Z [payment-engine] INFO: Initializing PaymentProcessor listener on :8080
+2026-09-13T04:12:02.450Z [api-gateway] INFO: Route POST /pay registered with upstream http://payment:8080/charge
+2026-09-13T04:12:05.811Z [payment-engine] ERROR: Failed to compute tiered transaction fee
+Traceback (most recent call last):
+  File "services/payment-engine/main.py", line 6, in calculate_fee
+    return amount * fee_rate # Undefined fee_rate
+NameError: name 'fee_rate' is not defined in services/payment-engine/main.py:6
+2026-09-13T04:12:05.815Z [api-gateway] ERROR: Unhandled rejection in /pay route handler
+TypeError: Cannot read properties of Promise (pending) in services/api-gateway/index.js:8
+    at app.post (/services/api-gateway/index.js:8:23)
+    at processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-09-13T04:12:05.890Z [billing-jvm] ERROR: Exception in thread "main" java.lang.NullPointerException: Cannot invoke 'java.lang.Double.doubleValue()' because 'amount' is null in PaymentProcessor.java:5
+    at com.opsgenome.billing.PaymentProcessor.computeTotal(PaymentProcessor.java:5)
+2026-09-13T04:12:07.120Z [kubelet] WARNING: Pod payment-engine-789f6d4d8-x9z2l exceeded memory limit 64Mi.
+OOMKilled: Container payment-engine exited with code 137. Memory cgroup out of memory.

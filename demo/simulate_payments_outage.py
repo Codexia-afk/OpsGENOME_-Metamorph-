@@ -51,20 +51,27 @@ def run_payments_outage_simulation(db_path: str | None = None) -> Incident:
     db.create_incident(incident)
     print(f"✔ Webhook Auto-Triggered: {incident.title} (ID: {incident.id})")
 
-    # 2. Terminal activity sequence
-    unhealthy_state = StateSnapshot(
-        incident_id=incident.id,
-        resource_type="k8s_pods",
-        status_summary="payments-service-7f4c 0/1 CrashLoopBackOff | HTTP 504 Gateway Timeout",
-        is_healthy=False,
-    )
-
-    healthy_state = StateSnapshot(
-        incident_id=incident.id,
-        resource_type="k8s_pods",
-        status_summary="payments-service-7f4c 1/1 Running | HTTP 200 OK (Latency: 42ms)",
-        is_healthy=True,
-    )
+    # 2. Terminal activity sequence (query real K8s collector if cluster is reachable)
+    try:
+        from opsgenome.watcher.k8s import K8sStateCollector
+        collector = K8sStateCollector(namespace="payments")
+        collector.connect()
+        unhealthy_state = collector.capture_snapshot(incident_id=incident.id)
+        # Note: In real cluster, healthy state is captured following remediation
+        healthy_state = collector.capture_snapshot(incident_id=incident.id)
+    except Exception:
+        unhealthy_state = StateSnapshot(
+            incident_id=incident.id,
+            resource_type="k8s_pods",
+            status_summary="payments-service-7f4c 0/1 CrashLoopBackOff | HTTP 504 Gateway Timeout",
+            is_healthy=False,
+        )
+        healthy_state = StateSnapshot(
+            incident_id=incident.id,
+            resource_type="k8s_pods",
+            status_summary="payments-service-7f4c 1/1 Running | HTTP 200 OK (Latency: 42ms)",
+            is_healthy=True,
+        )
 
     commands_data = [
         # Step 0: Noise
@@ -110,7 +117,7 @@ def run_payments_outage_simulation(db_path: str | None = None) -> Incident:
     incident.resolved_by = "sarah_principal_sre"
     db.create_incident(incident)
 
-    runbook = gen.generate_runbook_for_incident(
+    chain, runbook = gen.generate_runbook_for_incident(
         incident=incident,
         events=events,
         historical_count=1,

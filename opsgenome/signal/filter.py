@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import re
 from opsgenome.signal.state_diff import compute_state_delta
+from opsgenome.signal.stack_detector import TARGET_TOOLS
 from opsgenome.storage.models import Event, EventClassification, StateSnapshot
 
 

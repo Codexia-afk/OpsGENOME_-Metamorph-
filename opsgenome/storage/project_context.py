@@ -35,6 +35,12 @@ def detect_project(cwd: str | Path | None = None) -> str:
         return _clean_identifier(env_override)
 
     target_dir = str(cwd) if cwd else os.getcwd()
+    target_path = Path(target_dir).resolve()
+
+    # Check if within distinct subproject / monorepo package (e.g. demo-projects, services)
+    for p in [target_path] + list(target_path.parents):
+        if p.parent and p.parent.name in ("demo-projects", "services", "microservices", "apps"):
+            return _clean_identifier(p.name)
 
     # 2. Git Remote Origin URL
     try:

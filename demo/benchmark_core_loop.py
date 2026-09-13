@@ -133,15 +133,21 @@ def run_benchmark():
         saved_ev = db.save_event(clean_ev)
         events1.append(saved_ev)
 
-    snap1 = StateSnapshot(
-        id="bench-snap-001",
-        incident_id=inc1.id,
-        event_id=events1[-1].id,
-        resource_type="k8s_deployment",
-        is_healthy=True,
-        diff_summary="Pod CrashLoopBackOff -> Running 1/1, latency 2100ms -> 42ms",
-        status_summary="Deployment healthy",
-    )
+    try:
+        from opsgenome.watcher.k8s import K8sStateCollector
+        _bench_k8s = K8sStateCollector(namespace="payments")
+        _bench_k8s.connect()
+        snap1 = _bench_k8s.capture_snapshot(incident_id=inc1.id, event_id=events1[-1].id)
+    except Exception:
+        snap1 = StateSnapshot(
+            id="bench-snap-001",
+            incident_id=inc1.id,
+            event_id=events1[-1].id,
+            resource_type="k8s_deployment",
+            is_healthy=True,
+            diff_summary="Pod CrashLoopBackOff -> Running 1/1, latency 2100ms -> 42ms",
+            status_summary="Deployment healthy",
+        )
     db.save_state_snapshot(snap1)
     t_redact = (time.perf_counter() - t0) * 1000
     timings.append(("1. Ingestion & Fail-Closed Redaction", t_redact, "13 events + snapshots sanitized"))

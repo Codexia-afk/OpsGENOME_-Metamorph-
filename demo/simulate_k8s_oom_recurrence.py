@@ -61,9 +61,16 @@ def run_recurrence_and_drift_simulation(db_path: str | None = None) -> None:
         )
         db.create_incident(inc)
 
-        # Seed events for each
-        b_snap = StateSnapshot(incident_id=inc.id, status_summary="Degraded 504 Gateway Timeout", is_healthy=False)
-        a_snap = StateSnapshot(incident_id=inc.id, status_summary="Healthy 200 OK (Latency: 35ms)", is_healthy=True)
+        # Seed events for each (use real K8s collector if reachable)
+        try:
+            from opsgenome.watcher.k8s import K8sStateCollector
+            _collector = K8sStateCollector(namespace="payments")
+            _collector.connect()
+            b_snap = _collector.capture_snapshot(incident_id=inc.id)
+            a_snap = _collector.capture_snapshot(incident_id=inc.id)
+        except Exception:
+            b_snap = StateSnapshot(incident_id=inc.id, status_summary="Degraded 504 Gateway Timeout", is_healthy=False)
+            a_snap = StateSnapshot(incident_id=inc.id, status_summary="Healthy 200 OK (Latency: 35ms)", is_healthy=True)
 
         ev1 = CapturedEvent(incident_id=inc.id, sequence_idx=0, command_redacted="kubectl get pods -n prod -l app=payments-service", exit_code=0)
         ev2 = CapturedEvent(incident_id=inc.id, sequence_idx=1, command_redacted="kubectl patch configmap payments-config --type merge -p '{\"data\":{\"DB_POOL_MAX\":\"50\"}}'", exit_code=0)

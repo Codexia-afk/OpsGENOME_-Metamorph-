@@ -166,6 +166,10 @@ class Event(BaseModel):
     after_snapshot: Any | None = None
     project: str = "default"
     stack: str = "general"
+    parsed_error: dict[str, Any] | None = None
+    source_pod: str | None = None
+    source_container: str | None = None
+    line_offset: int | None = None
 
     def model_post_init(self, __context: Any) -> None:
         if self.command_redacted and not self.raw_command:

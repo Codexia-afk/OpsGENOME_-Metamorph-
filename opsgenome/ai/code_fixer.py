@@ -12,11 +12,12 @@ Enforces:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import difflib
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,48 @@ from opsgenome.signal.log_distiller import SemanticLogDistiller
 from opsgenome.storage.db import DatabaseManager
 
 
+def safe_subprocess_run(
+    cmd: str | list[str],
+    cwd: str | None = None,
+    timeout: float = 15.0,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Execute command safely without shell=True to prevent command injection."""
+    if isinstance(cmd, str):
+        tokens = shlex.split(cmd)
+    else:
+        tokens = list(cmd)
+
+    if not tokens:
+        return subprocess.CompletedProcess(args=tokens, returncode=1, stdout="", stderr="Error: Empty command string.")
+
+    try:
+        return subprocess.run(
+            tokens,
+            shell=False,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=timeout,
+            env=env,
+        )
+    except FileNotFoundError as err:
+        return subprocess.CompletedProcess(
+            args=tokens,
+            returncode=127,
+            stdout="",
+            stderr=f"Executable not found: {err}",
+        )
+    except subprocess.TimeoutExpired as err:
+        return subprocess.CompletedProcess(
+            args=tokens,
+            returncode=124,
+            stdout=err.stdout or "" if isinstance(err.stdout, str) else "",
+            stderr=f"Command timed out after {timeout} seconds.",
+        )
+
+
+
 @dataclass
 class FailureContext:
     command: str
@@ -36,6 +79,7 @@ class FailureContext:
     stdout: str
     stderr: str
     cwd: str
+    call_stack_files: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -77,14 +121,17 @@ class CodeFixEngine:
             target_path = Path(work_dir) / target
             ext = target_path.suffix.lower()
             if ext == ".py":
-                command = f"{sys.executable} {target}"
+                cmd_tokens = [sys.executable, str(target_path)]
             elif ext in (".js", ".mjs"):
-                command = f"node {target}"
+                cmd_tokens = ["node", str(target_path)]
             elif ext == ".sh":
-                command = f"bash {target}"
+                cmd_tokens = ["bash", str(target_path)]
             else:
-                command = f"python3 {target}"
-            proc = subprocess.run(command, shell=True, capture_output=True, text=True, cwd=work_dir, timeout=15)
+                cmd_tokens = [sys.executable, str(target_path)]
+            command = " ".join(shlex.quote(t) for t in cmd_tokens)
+            proc = safe_subprocess_run(cmd_tokens, cwd=work_dir, timeout=15)
+            err_comb = proc.stderr + "\n" + proc.stdout
+            stack_files = self.extract_traceback_chain(err_comb, work_dir)
             return FailureContext(
                 command=command,
                 target_file=str(target_path.resolve()),
@@ -92,13 +139,16 @@ class CodeFixEngine:
                 stdout=proc.stdout,
                 stderr=proc.stderr,
                 cwd=work_dir,
+                call_stack_files=stack_files,
             )
 
         # Case 2: Target is an explicit command string
         if target:
             command = target
-            proc = subprocess.run(command, shell=True, capture_output=True, text=True, cwd=work_dir, timeout=15)
-            target_file = self.extract_target_file(proc.stderr, command, work_dir)
+            proc = safe_subprocess_run(command, cwd=work_dir, timeout=15)
+            err_comb = proc.stderr + "\n" + proc.stdout
+            stack_files = self.extract_traceback_chain(err_comb, work_dir)
+            target_file = self.extract_target_file(err_comb, command, work_dir)
             return FailureContext(
                 command=command,
                 target_file=target_file,
@@ -106,6 +156,7 @@ class CodeFixEngine:
                 stdout=proc.stdout,
                 stderr=proc.stderr,
                 cwd=work_dir,
+                call_stack_files=stack_files,
             )
 
         # Case 3: Target is None; check database for most recent failure
@@ -119,14 +170,18 @@ class CodeFixEngine:
                         latest = failed_events[-1]
                         cmd = latest.raw_command or latest.command_redacted
                         err = latest.stderr_snippet or ""
-                        target_file = self.extract_target_file(err, cmd, work_dir)
+                        out = latest.stdout_snippet or ""
+                        err_comb = err + "\n" + out
+                        stack_files = self.extract_traceback_chain(err_comb, work_dir)
+                        target_file = self.extract_target_file(err_comb, cmd, work_dir)
                         return FailureContext(
                             command=cmd,
                             target_file=target_file,
                             exit_code=latest.exit_code,
-                            stdout=latest.stdout_snippet or "",
+                            stdout=out,
                             stderr=err,
                             cwd=latest.cwd or work_dir,
+                            call_stack_files=stack_files,
                         )
             except Exception:
                 pass
@@ -134,27 +189,64 @@ class CodeFixEngine:
         raise ValueError("No target command or script specified, and no recent failure recorded in local database.")
 
     @staticmethod
-    def extract_target_file(error_output: str, command: str, cwd: str) -> str:
-        """Extract the offending project source file from a Python/Node traceback or command string."""
-        # 1. Inspect Python traceback frames in reverse order (closest to site of error)
-        traceback_matches = re.findall(r'File "([^"]+)", line \d+', error_output)
-        for path_str in reversed(traceback_matches):
-            p = Path(path_str)
-            # Exclude standard library and third-party site-packages
+    def extract_traceback_chain(error_output: str, cwd: str) -> list[str]:
+        """Extract all project-level source files in the traceback call chain."""
+        candidates: list[str] = []
+
+        # 1. Python frames: File "...", line X
+        py_matches = re.findall(r'File "([^"]+)", line \d+', error_output)
+        for path_str in py_matches:
             if "site-packages" in path_str or "lib/python" in path_str or path_str.startswith("<"):
                 continue
+            p = Path(path_str)
             resolved = p if p.is_absolute() else (Path(cwd) / p).resolve()
-            if resolved.is_file():
-                return str(resolved)
+            if resolved.is_file() and str(resolved) not in candidates:
+                candidates.append(str(resolved))
 
-        # 2. Inspect command string arguments for filename
+        # 2. Node.js / JavaScript frames: at ... (/path/to/file.js:12:34) or at /path/to/file.js:12:34
+        node_matches = re.findall(r'(?:at\s+(?:[^\(\s]+\s+)?\(|\bat\s+)([a-zA-Z0-9_\-\./\\]+\.(?:js|mjs|cjs|ts)):\d+:\d+', error_output)
+        for path_str in node_matches:
+            if "node_modules" in path_str or path_str.startswith("node:"):
+                continue
+            p = Path(path_str)
+            resolved = p if p.is_absolute() else (Path(cwd) / p).resolve()
+            if resolved.is_file() and str(resolved) not in candidates:
+                candidates.append(str(resolved))
+
+        # 3. Shell script errors: script.sh: line X:
+        sh_matches = re.findall(r'([a-zA-Z0-9_\-\./\\]+\.sh):\s*line\s+\d+:', error_output)
+        for path_str in sh_matches:
+            p = Path(path_str)
+            resolved = p if p.is_absolute() else (Path(cwd) / p).resolve()
+            if resolved.is_file() and str(resolved) not in candidates:
+                candidates.append(str(resolved))
+
+        # 4. Config files: in "config.yaml", line X
+        cfg_matches = re.findall(r'(?:in\s+["\']|file\s+["\'])([a-zA-Z0-9_\-\./\\]+\.(?:ya?ml|json|toml))["\']', error_output, re.IGNORECASE)
+        for path_str in cfg_matches:
+            p = Path(path_str)
+            resolved = p if p.is_absolute() else (Path(cwd) / p).resolve()
+            if resolved.is_file() and str(resolved) not in candidates:
+                candidates.append(str(resolved))
+
+        return candidates
+
+    @classmethod
+    def extract_target_file(cls, error_output: str, command: str, cwd: str) -> str:
+        """Extract the offending project source file from Python/Node/Shell tracebacks or command string."""
+        chain = cls.extract_traceback_chain(error_output, cwd)
+        if chain:
+            return chain[-1]
+
+        # Inspect command string arguments for filename
         for token in command.split():
             clean_token = token.strip("\"'")
             candidate = (Path(cwd) / clean_token).resolve()
-            if candidate.is_file() and candidate.suffix in (".py", ".js", ".sh", ".json", ".yaml", ".yml"):
+            if candidate.is_file() and candidate.suffix in (".py", ".js", ".mjs", ".sh", ".json", ".yaml", ".yml", ".toml"):
                 return str(candidate)
 
-        # 3. Fallback to any matched traceback file
+        # Fallback to any matched traceback file
+        traceback_matches = re.findall(r'File "([^"]+)", line \d+', error_output)
         if traceback_matches:
             return traceback_matches[-1]
 
@@ -175,11 +267,19 @@ class CodeFixEngine:
         # Semantic Log Distillation: Compress noisy traceback frames into minimal semantic signature
         distilled = SemanticLogDistiller.distill_traceback(safe_error)
 
+        # Multi-file stack context
+        stack_note = ""
+        if len(failure.call_stack_files) > 1:
+            rel_names = [Path(f).name for f in failure.call_stack_files]
+            stack_note = f"\n[Multi-File Call Stack: {' -> '.join(rel_names)}]"
+
+        error_to_send = (distilled.distilled_text or safe_error) + stack_note
+
         diagnosis = self.ai_engine.diagnose_and_fix_code(
             filename=file_path.name,
             code_content=safe_code,
             command=failure.command,
-            error_output=distilled.distilled_text or safe_error,
+            error_output=error_to_send,
             exit_code=failure.exit_code,
         )
 
@@ -238,15 +338,8 @@ class CodeFixEngine:
             result.backup_path = None
 
     @staticmethod
-    def verify_remediation(command: str, cwd: str | None = None, timeout: float = 15.0) -> tuple[int, str, str]:
-        """Execute closed-loop verification command on live environment."""
+    def verify_remediation(command: str | list[str], cwd: str | None = None, timeout: float = 15.0) -> tuple[int, str, str]:
+        """Execute closed-loop verification command on live environment safely without shell=True."""
         work_dir = cwd or os.getcwd()
-        proc = subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            cwd=work_dir,
-            timeout=timeout,
-        )
+        proc = safe_subprocess_run(command, cwd=work_dir, timeout=timeout)
         return proc.returncode, proc.stdout, proc.stderr

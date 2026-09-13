@@ -60,6 +60,9 @@ class K8sStateCollector:
         self.kubeconfig_path = kubeconfig_path or os.environ.get("KUBECONFIG")
         self.context = context
         self.poll_interval = poll_interval_seconds
+        self.allow_simulation = os.environ.get("OPSGENOME_K8S_SIMULATION") == "1"
+        self._sim_collector = None
+        self.is_simulated = False
 
         self._core_api: client.CoreV1Api | None = None
         self._apps_api: client.AppsV1Api | None = None
@@ -71,6 +74,13 @@ class K8sStateCollector:
 
     def connect(self) -> None:
         """Initializes connection to the Kubernetes API server with specific failure diagnosis."""
+        if self.allow_simulation:
+            from opsgenome.watcher.k8s_sim import SimulatedK8sCollector
+            self._sim_collector = SimulatedK8sCollector(namespace=self.namespace)
+            self._sim_collector.connect()
+            self.is_simulated = True
+            return
+
         target_kubeconfig = self.kubeconfig_path or os.path.expanduser("~/.kube/config")
         try:
             if os.path.exists(target_kubeconfig):
@@ -82,6 +92,12 @@ class K8sStateCollector:
                 try:
                     config.load_incluster_config()
                 except Exception as in_cluster_err:
+                    if self.allow_simulation:
+                        from opsgenome.watcher.k8s_sim import SimulatedK8sCollector
+                        self._sim_collector = SimulatedK8sCollector(namespace=self.namespace)
+                        self._sim_collector.connect()
+                        self.is_simulated = True
+                        return
                     raise K8sClusterUnreachableError(
                         f"Kubernetes cluster unreachable: kubeconfig not found at \"{target_kubeconfig}\" "
                         f"and in-cluster service account configuration failed: {in_cluster_err}"
@@ -90,8 +106,20 @@ class K8sStateCollector:
             self._core_api = client.CoreV1Api()
             self._apps_api = client.AppsV1Api()
         except K8sCollectorError:
+            if self.allow_simulation:
+                from opsgenome.watcher.k8s_sim import SimulatedK8sCollector
+                self._sim_collector = SimulatedK8sCollector(namespace=self.namespace)
+                self._sim_collector.connect()
+                self.is_simulated = True
+                return
             raise
         except Exception as exc:
+            if self.allow_simulation:
+                from opsgenome.watcher.k8s_sim import SimulatedK8sCollector
+                self._sim_collector = SimulatedK8sCollector(namespace=self.namespace)
+                self._sim_collector.connect()
+                self.is_simulated = True
+                return
             raise K8sClusterUnreachableError(
                 f"Failed to connect to Kubernetes cluster API: {exc}"
             ) from exc
@@ -128,6 +156,8 @@ class K8sStateCollector:
         """Diagnoses connection and namespace health without raising uncaught exceptions."""
         try:
             self.connect()
+            if self.is_simulated and self._sim_collector:
+                return self._sim_collector.check_health()
             return {"healthy": True, "namespace": self.namespace, "error": None}
         except K8sNamespaceNotFoundError as e:
             return {"healthy": False, "namespace": self.namespace, "error": f"Namespace not found: {e}"}
@@ -140,8 +170,12 @@ class K8sStateCollector:
 
     def capture_raw_state(self) -> tuple[dict[str, Any], bool, str]:
         """Polls live Kubernetes API for pod statuses, container states, and ConfigMap metadata."""
+        if self.is_simulated and self._sim_collector:
+            return self._sim_collector.capture_raw_state()
         if not self._core_api:
             self.connect()
+        if self.is_simulated and self._sim_collector:
+            return self._sim_collector.capture_raw_state()
 
         # 1. Gather Pods
         pods_state: dict[str, Any] = {}
